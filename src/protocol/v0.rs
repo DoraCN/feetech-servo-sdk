@@ -8,6 +8,9 @@ pub const ADDR_TORQUE_ENABLE: u8 = 40;
 pub const ADDR_GOAL_POSITION: u8 = 42;
 pub const ADDR_PRESENT_POSITION: u8 = 56;
 
+pub const ADDR_MAX_TORQUE: u8 = 16;
+pub const ADDR_P_COEFFICIENT: u8 = 21; // 比例增益 (刚度)
+
 // 指令集
 pub enum Instruction {
     Ping = 0x01,

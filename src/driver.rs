@@ -25,7 +25,7 @@ impl FeetechBus {
 
         Ok(Self {
             stream,
-            read_timeout: Duration::from_millis(20),
+            read_timeout: Duration::from_millis(10),
         })
     }
 
@@ -33,6 +33,21 @@ impl FeetechBus {
     pub async fn shutdown(&mut self, ids: &[u8]) -> Result<()> {
         info!("Shutting down motors: {:?}", ids);
         self.disable_torque(ids).await
+    }
+
+    /// [新增] 修改 8位 寄存器 (用于调整 P-Gain 等参数)
+    pub async fn write_byte(&mut self, id: u8, address: u8, value: u8) -> Result<()> {
+        let packet = v0::pack_instruction(id, Instruction::Write, &[address, value]);
+        self.transfer(id, &packet, 6).await?;
+        Ok(())
+    }
+
+    /// [新增] 修改 16位 寄存器 (用于调整 Max Torque 等)
+    pub async fn write_word(&mut self, id: u8, address: u8, value: u16) -> Result<()> {
+        let bytes = value.to_le_bytes();
+        let packet = v0::pack_instruction(id, Instruction::Write, &[address, bytes[0], bytes[1]]);
+        self.transfer(id, &packet, 6).await?;
+        Ok(())
     }
 
     // 私有辅助：发送并接收响应
