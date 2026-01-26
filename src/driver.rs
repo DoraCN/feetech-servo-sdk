@@ -1,0 +1,161 @@
+use crate::bus::{MotorBus, ControlOp};
+use crate::error::{Result, ServoError};
+use crate::protocol::v0::{self, Instruction};
+use tokio_serial::{SerialStream, SerialPortBuilderExt};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::time::{sleep, Duration};
+use tracing::{trace, info, warn, instrument};
+use std::f32::consts::PI;
+
+// STS3215 规格
+const RESOLUTION: f32 = 4096.0;
+const MAX_TICKS: f32 = 4095.0;
+
+pub struct FeetechBus {
+    stream: SerialStream,
+    read_timeout: Duration,
+}
+
+impl FeetechBus {
+    pub fn new(path: &str, baud_rate: u32) -> Result<Self> {
+        let stream = tokio_serial::new(path, baud_rate)
+            .timeout(Duration::from_millis(100))
+            .open_native_async()?;
+            
+        Ok(Self {
+            stream,
+            read_timeout: Duration::from_millis(20),
+        })
+    }
+    
+    /// 显式停机：关闭所有扭矩
+    pub async fn shutdown(&mut self, ids: &[u8]) -> Result<()> {
+        info!("Shutting down motors: {:?}", ids);
+        self.disable_torque(ids).await
+    }
+
+    // 私有辅助：发送并接收响应
+    async fn transfer(&mut self, id: u8, packet: &[u8], response_len: usize) -> Result<Vec<u8>> {
+        // Clear buffer before write (simple flush)
+        // self.stream.try_read(...) // optional cleanup
+        
+        trace!("TX -> {:02X?}", packet);
+        self.stream.write_all(packet).await?;
+        
+        let mut buf = vec![0u8; response_len];
+        
+        // 使用 tokio::select 实现读取超时
+        let read_future = self.stream.read_exact(&mut buf);
+        match tokio::time::timeout(self.read_timeout, read_future).await {
+            Ok(io_res) => io_res?,
+            Err(_) => return Err(ServoError::Timeout { id }),
+        };
+        
+        trace!("RX <- {:02X?}", buf);
+        v0::parse_response(id, &buf)
+    }
+    
+    // 物理单位转换: Radians <-> Ticks
+    fn rad_to_tick(rad: f32) -> i16 {
+        let normalized = (rad / (2.0 * PI)) + 0.5; // Map -PI~PI to 0~1
+        let tick = (normalized * RESOLUTION).round();
+        tick.clamp(0.0, MAX_TICKS) as i16
+    }
+
+    fn tick_to_rad(tick: i16) -> f32 {
+        let normalized = tick as f32 / MAX_TICKS;
+        (normalized - 0.5) * 2.0 * PI
+    }
+}
+
+#[async_trait]
+impl MotorBus for FeetechBus {
+    #[instrument(skip(self))]
+    async fn enable_torque(&mut self, ids: &[u8]) -> Result<()> {
+        // 简单实现：循环发送。如果追求性能可用 SyncWrite
+        for &id in ids {
+            let packet = v0::pack_instruction(id, Instruction::Write, &[v0::ADDR_TORQUE_ENABLE, 1]);
+            self.transfer(id, &packet, 6).await?; // Write returns status packet (6 bytes)
+        }
+        Ok(())
+    }
+
+    #[instrument(skip(self))]
+    async fn disable_torque(&mut self, ids: &[u8]) -> Result<()> {
+        for &id in ids {
+            let packet = v0::pack_instruction(id, Instruction::Write, &[v0::ADDR_TORQUE_ENABLE, 0]);
+            // Best effort shutdown, ignore errors
+            let _ = self.transfer(id, &packet, 6).await;
+        }
+        Ok(())
+    }
+
+    #[instrument(skip(self))]
+    async fn read_position(&mut self, id: u8) -> Result<f32> {
+        let packet = v0::pack_instruction(id, Instruction::Read, &[v0::ADDR_PRESENT_POSITION, 2]);
+        // Resp: Header(2)+ID(1)+Len(1)+Err(1)+Param(2)+Sum(1) = 8 bytes
+        let params = self.transfer(id, &packet, 8).await?;
+        
+        let pos_raw = i16::from_le_bytes([params[0], params[1]]);
+        Ok(Self::tick_to_rad(pos_raw))
+    }
+
+    #[instrument(skip(self))]
+    async fn write_goal(&mut self, id: u8, op: ControlOp) -> Result<()> {
+        match op {
+            ControlOp::Position(rad) => {
+                let tick = Self::rad_to_tick(rad);
+                let bytes = tick.to_le_bytes();
+                let packet = v0::pack_instruction(id, Instruction::Write, &[v0::ADDR_GOAL_POSITION, bytes[0], bytes[1]]);
+                self.transfer(id, &packet, 6).await?;
+            }
+            _ => return Err(ServoError::Protocol("Unsupported control mode".into())),
+        }
+        Ok(())
+    }
+
+    /// 软件级同步读：由于 Protocol 0 标准无 SyncRead，此处使用串行循环读取
+    /// 未来优化：若固件支持 BulkRead 可在此替换
+    #[instrument(skip(self))]
+    async fn sync_read_positions(&mut self, ids: &[u8]) -> Result<Vec<f32>> {
+        let mut results = Vec::with_capacity(ids.len());
+        for &id in ids {
+            // 遇到单个读取错误是否熔断？严格模式下：是。
+            let pos = self.read_position(id).await?;
+            results.push(pos);
+        }
+        Ok(results)
+    }
+
+    /// 硬件级同步写
+    #[instrument(skip(self, commands))]
+    async fn sync_write_goals(&mut self, commands: &[(u8, ControlOp)]) -> Result<()> {
+        if commands.is_empty() { return Ok(()); }
+        
+        // Sync Write 格式: [Addr, Len, ID1, Data1_L, Data1_H, ID2, Data2_L, Data2_H ...]
+        let mut params = Vec::new();
+        params.push(v0::ADDR_GOAL_POSITION);
+        params.push(2); // 每个电机的数据长度
+        
+        for (id, op) in commands {
+            if let ControlOp::Position(rad) = op {
+                let tick = Self::rad_to_tick(*rad);
+                let bytes = tick.to_le_bytes();
+                params.push(*id);
+                params.push(bytes[0]);
+                params.push(bytes[1]);
+            } else {
+                 return Err(ServoError::Protocol("SyncWrite only supports Position currently".into()));
+            }
+        }
+        
+        // Broadcast ID 0xFE for SyncWrite
+        let packet = v0::pack_instruction(0xFE, Instruction::SyncWrite, &params);
+        
+        trace!("SyncWrite TX -> {:02X?}", packet);
+        self.stream.write_all(&packet).await?;
+        // SyncWrite 不返回响应
+        
+        Ok(())
+    }
+}

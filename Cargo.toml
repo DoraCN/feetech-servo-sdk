@@ -1,0 +1,25 @@
+[package]
+name = "feetech-servo-sdk"
+version = "0.1.0"
+edition = "2024"
+description = "High-performance async Rust driver for Feetech STS/SMS servos."
+
+[dependencies]
+# 异步运行时与串口
+tokio = { version = "1", features = ["full"] }
+tokio-serial = "5.4" # 跨平台异步串口
+
+# 错误处理与日志
+thiserror = "1.0"
+tracing = "0.1"      # 标准日志门面
+
+# 工具类
+bytes = "1"          # 高效字节操作
+crc = "3"            # 如果未来需要高级校验
+bitflags = "2"       # 处理硬件状态位
+
+# CLI 工具依赖 (可选，仅用于 examples)
+clap = { version = "4", features = ["derive"] }
+
+[dev-dependencies]
+anyhow = "1.0"       # 测试用简便错误处理
