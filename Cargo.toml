@@ -20,6 +20,9 @@ bitflags = "2"       # 处理硬件状态位
 
 # CLI 工具依赖 (可选，仅用于 examples)
 clap = { version = "4", features = ["derive"] }
+async-trait = "0.1.89"
+anyhow = "1.0"
+tracing-subscriber = "0.3.22"
 
 [dev-dependencies]
 anyhow = "1.0"       # 测试用简便错误处理
