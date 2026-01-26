@@ -23,9 +23,9 @@
 
 ```toml
 [dependencies]
-feetech-servo-sdk = { path = "." } # 如果在本地开发
+feetech-servo-sdk = "0.1.0" # 如果在本地开发
 # 或者使用 git 依赖
-# feetech-servo-sdk = { git = "[https://github.com/your-repo/feetech-servo-sdk](https://github.com/your-repo/feetech-servo-sdk)" }
+# feetech-servo-sdk = { git = "https://github.com/DoraCN/feetech-servo-sdk.git" }
 
 tokio = { version = "1", features = ["full"] }
 anyhow = "1.0"
