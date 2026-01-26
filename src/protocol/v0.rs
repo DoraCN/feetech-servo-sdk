@@ -1,5 +1,5 @@
 use crate::error::{Result, ServoError};
-use bytes::{BufMut, BytesMut};
+use bytes::BufMut;
 
 pub const HEADER: u16 = 0xFFFF;
 
@@ -31,7 +31,7 @@ fn calculate_checksum(id: u8, length: u8, instruction: u8, params: &[u8]) -> u8 
 pub fn pack_instruction(id: u8, instr: Instruction, params: &[u8]) -> Vec<u8> {
     let length = (params.len() + 2) as u8; // Instruction + Params + Checksum
     let instr_byte = instr as u8;
-    
+
     let mut buf = Vec::with_capacity(length as usize + 4);
     buf.put_u8(0xFF);
     buf.put_u8(0xFF);
@@ -39,10 +39,10 @@ pub fn pack_instruction(id: u8, instr: Instruction, params: &[u8]) -> Vec<u8> {
     buf.put_u8(length);
     buf.put_u8(instr_byte);
     buf.extend_from_slice(params);
-    
+
     let checksum = calculate_checksum(id, length, instr_byte, params);
     buf.put_u8(checksum);
-    
+
     buf
 }
 
@@ -60,26 +60,29 @@ pub fn parse_response(id: u8, data: &[u8]) -> Result<Vec<u8>> {
 
     // 2. 检查 ID
     if data[2] != id {
-        return Err(ServoError::Protocol(format!("ID mismatch, sent {}, got {}", id, data[2])));
+        return Err(ServoError::Protocol(format!(
+            "ID mismatch, sent {}, got {}",
+            id, data[2]
+        )));
     }
 
     let length = data[3];
     let status = data[4];
-    
+
     // 3. 检查校验和
     // 响应包的 Instruction 位是 Status 字节
     // Checksum = ~(ID + Length + Status + Params)
-    let params = &data[5..data.len()-1];
-    let received_checksum = data[data.len()-1];
-    
+    let params = &data[5..data.len() - 1];
+    let received_checksum = data[data.len() - 1];
+
     // 注意：计算响应校验和时，把 status 当作 instruction 位置传入
     let calc_checksum = calculate_checksum(id, length, status, params);
-    
+
     if received_checksum != calc_checksum {
-        return Err(ServoError::ChecksumMismatch { 
-            id, 
-            expected: calc_checksum, 
-            actual: received_checksum 
+        return Err(ServoError::ChecksumMismatch {
+            id,
+            expected: calc_checksum,
+            actual: received_checksum,
         });
     }
 
@@ -87,7 +90,11 @@ pub fn parse_response(id: u8, data: &[u8]) -> Result<Vec<u8>> {
     // STS 状态位: Bit0=电压, Bit1=角度, Bit2=过热, Bit3=?, Bit4=过载, Bit5=速度
     if status != 0 {
         let msg = decode_hardware_error(status);
-        return Err(ServoError::HardwareError { id, status_byte: status, msg });
+        return Err(ServoError::HardwareError {
+            id,
+            status_byte: status,
+            msg,
+        });
     }
 
     Ok(params.to_vec())
@@ -95,10 +102,20 @@ pub fn parse_response(id: u8, data: &[u8]) -> Result<Vec<u8>> {
 
 fn decode_hardware_error(status: u8) -> String {
     let mut errs = Vec::new();
-    if status & 0x01 != 0 { errs.push("Input Voltage Error"); }
-    if status & 0x02 != 0 { errs.push("Angle Limit Error"); }
-    if status & 0x04 != 0 { errs.push("Overheating"); }
-    if status & 0x08 != 0 { errs.push("Range Error"); }
-    if status & 0x10 != 0 { errs.push("Overload"); }
+    if status & 0x01 != 0 {
+        errs.push("Input Voltage Error");
+    }
+    if status & 0x02 != 0 {
+        errs.push("Angle Limit Error");
+    }
+    if status & 0x04 != 0 {
+        errs.push("Overheating");
+    }
+    if status & 0x08 != 0 {
+        errs.push("Range Error");
+    }
+    if status & 0x10 != 0 {
+        errs.push("Overload");
+    }
     errs.join(", ")
 }

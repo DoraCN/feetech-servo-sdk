@@ -4,9 +4,9 @@ use crate::protocol::v0::{self, Instruction};
 use async_trait::async_trait;
 use std::f32::consts::PI;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::time::{Duration, sleep};
+use tokio::time::Duration;
 use tokio_serial::{SerialPortBuilderExt, SerialStream};
-use tracing::{info, instrument, trace, warn};
+use tracing::{info, instrument, trace};
 
 // STS3215 规格
 const RESOLUTION: f32 = 4096.0;
