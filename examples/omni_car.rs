@@ -134,17 +134,32 @@ async fn main() -> anyhow::Result<()> {
 
     // 1. 前进
     info!(">>> 前进 (Forward)");
-    car.move_base(500.0, 0.0, 0.0).await?;
-    tokio::time::sleep(Duration::from_secs(5)).await;
+    car.move_base(1000.0, 0.0, 0.0).await?;
+    tokio::time::sleep(Duration::from_secs(2)).await;
 
     // 2. 横向漂移 (左)
     info!(">>> 左平移 (Crab Left)");
     car.move_base(0.0, 500.0, 0.0).await?;
     tokio::time::sleep(Duration::from_secs(5)).await;
 
+    // 2. 横向漂移 (右)
+    info!(">>> 右平移 (Crab Left)");
+    car.move_base(0.0, -500.0, 0.0).await?;
+    tokio::time::sleep(Duration::from_secs(5)).await;
+
+    // 1. 后退
+    info!(">>> 后退 (Forward)");
+    car.move_base(-500.0, 0.0, 0.0).await?;
+    tokio::time::sleep(Duration::from_secs(5)).await;
+
     // 3. 原地旋转
     info!(">>> 旋转 (Spin)");
     car.move_base(0.0, 0.0, 300.0).await?;
+    tokio::time::sleep(Duration::from_secs(5)).await;
+
+    // 3. 原地旋转
+    info!(">>> 旋转 (Spin)");
+    car.move_base(0.0, 0.0, -300.0).await?;
     tokio::time::sleep(Duration::from_secs(5)).await;
 
     // 4. 斜向移动 (左前)

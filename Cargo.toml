@@ -28,4 +28,5 @@ anyhow = "1.0"
 tracing-subscriber = "0.3.22"
 
 [dev-dependencies]
-anyhow = "1.0" # 测试用简便错误处理
+anyhow = "1.0"     # 测试用简便错误处理
+crossterm = "0.27" # 新增依赖：用于键盘控制
