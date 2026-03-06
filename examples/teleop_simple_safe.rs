@@ -77,6 +77,7 @@ async fn main() -> anyhow::Result<()> {
     info!("🚀 开始遥操作 (按 Ctrl+C 停止并归位)...");
 
     let mut interval = tokio::time::interval(Duration::from_millis(10)); // 100Hz
+    let mut ctrl_c = std::pin::pin!(tokio::signal::ctrl_c());
 
     // --- 主循环 ---
     loop {
@@ -106,9 +107,11 @@ async fn main() -> anyhow::Result<()> {
             }
 
             // 任务 B: 监听退出信号
-            _ = tokio::signal::ctrl_c() => {
-                info!("🛑 收到退出信号，接管控制权...");
-                break; // 跳出循环，进入下方的归位逻辑
+            res = &mut ctrl_c => {
+                if res.is_ok() {
+                    info!("🛑 收到退出信号，接管控制权...");
+                    break; // 跳出循环，进入下方的归位逻辑
+                }
             }
         }
     }
