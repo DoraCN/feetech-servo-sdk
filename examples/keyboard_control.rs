@@ -3,9 +3,9 @@ use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
     terminal::{disable_raw_mode, enable_raw_mode},
 };
-use feetech_servo_sdk::{FeetechBus, MotorBus};
+use feetech_servo_sdk::FeetechBus;
 use std::time::{Duration, Instant};
-use tracing::{info, Level};
+use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
 
 // === 寄存器地址 ===
@@ -60,9 +60,9 @@ impl OmniCar {
     /// 修正后的运动学解算 (带防饱和处理)
     pub async fn move_base(&mut self, vx: f32, vy: f32, omega: f32) -> anyhow::Result<()> {
         // 1. 原始计算
-        let mut v_left  = -0.866 * vx + 0.5 * vy + omega;
-        let mut v_back  =  0.0   * vx - 1.0 * vy + omega;
-        let mut v_right =  0.866 * vx + 0.5 * vy + omega;
+        let mut v_left = -0.866 * vx + 0.5 * vy + omega;
+        let mut v_back = 0.0 * vx - 1.0 * vy + omega;
+        let mut v_right = 0.866 * vx + 0.5 * vy + omega;
 
         // 2. 防饱和处理 (Normalization)
         // 定义舵机的物理极限速度 (建议留一点余量，比如 3800)
@@ -76,8 +76,8 @@ impl OmniCar {
         if max_v > PHYSICAL_LIMIT {
             let scale = PHYSICAL_LIMIT / max_v;
             // 等比例缩小所有轮子的速度
-            v_left  *= scale;
-            v_back  *= scale;
+            v_left *= scale;
+            v_back *= scale;
             v_right *= scale;
 
             // 可选：打印警告，让用户知道速度被限制了
@@ -98,7 +98,11 @@ impl OmniCar {
         let clamped = speed.clamp(-limit, limit);
 
         let magnitude = clamped.abs() as u16;
-        let reg_val = if clamped < 0.0 { magnitude | 0x8000 } else { magnitude };
+        let reg_val = if clamped < 0.0 {
+            magnitude | 0x8000
+        } else {
+            magnitude
+        };
         self.bus.write_word(id, ADDR_SPEED, reg_val).await?;
         Ok(())
     }
@@ -122,7 +126,9 @@ enum Action {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let subscriber = FmtSubscriber::builder().with_max_level(Level::INFO).finish();
+    let subscriber = FmtSubscriber::builder()
+        .with_max_level(Level::INFO)
+        .finish();
     tracing::subscriber::set_global_default(subscriber)?;
     let args = Args::parse();
 
@@ -160,30 +166,30 @@ async fn main() -> anyhow::Result<()> {
 
         // 2. 非阻塞读取所有积压的按键事件
         while event::poll(Duration::from_millis(0))? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press || key.kind == KeyEventKind::Repeat {
-                    last_key_time = Instant::now(); // 刷新活跃时间
+            if let Event::Key(key) = event::read()?
+                && (key.kind == KeyEventKind::Press || key.kind == KeyEventKind::Repeat)
+            {
+                last_key_time = Instant::now(); // 刷新活跃时间
 
-                    match key.code {
-                        KeyCode::Char('w') | KeyCode::Char('W') => current_action = Action::Forward,
-                        KeyCode::Char('s') | KeyCode::Char('S') => current_action = Action::Backward,
-                        KeyCode::Char('a') | KeyCode::Char('A') => current_action = Action::Left,
-                        KeyCode::Char('d') | KeyCode::Char('D') => current_action = Action::Right,
-                        KeyCode::Char('q') | KeyCode::Char('Q') => current_action = Action::TurnLeft,
-                        KeyCode::Char('e') | KeyCode::Char('E') => current_action = Action::TurnRight,
-                        KeyCode::Esc => {
-                            disable_raw_mode()?;
-                            car.stop().await?;
-                            println!("退出.");
-                            return Ok(());
-                        }
-                        KeyCode::Char('c') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
-                            disable_raw_mode()?;
-                            car.stop().await?;
-                            return Ok(());
-                        }
-                        _ => {} // 忽略其他按键
+                match key.code {
+                    KeyCode::Char('w') | KeyCode::Char('W') => current_action = Action::Forward,
+                    KeyCode::Char('s') | KeyCode::Char('S') => current_action = Action::Backward,
+                    KeyCode::Char('a') | KeyCode::Char('A') => current_action = Action::Left,
+                    KeyCode::Char('d') | KeyCode::Char('D') => current_action = Action::Right,
+                    KeyCode::Char('q') | KeyCode::Char('Q') => current_action = Action::TurnLeft,
+                    KeyCode::Char('e') | KeyCode::Char('E') => current_action = Action::TurnRight,
+                    KeyCode::Esc => {
+                        disable_raw_mode()?;
+                        car.stop().await?;
+                        println!("退出.");
+                        return Ok(());
                     }
+                    KeyCode::Char('c') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
+                        disable_raw_mode()?;
+                        car.stop().await?;
+                        return Ok(());
+                    }
+                    _ => {} // 忽略其他按键
                 }
             }
         }
@@ -195,13 +201,13 @@ async fn main() -> anyhow::Result<()> {
 
         // 4. 根据当前动作计算速度
         let (vx, vy, omega) = match current_action {
-            Action::Forward   => (args.speed, 0.0, 0.0),
-            Action::Backward  => (-args.speed, 0.0, 0.0),
-            Action::Left      => (0.0, args.speed, 0.0),
-            Action::Right     => (0.0, -args.speed, 0.0),
-            Action::TurnLeft  => (0.0, 0.0, args.turn_speed),
+            Action::Forward => (args.speed, 0.0, 0.0),
+            Action::Backward => (-args.speed, 0.0, 0.0),
+            Action::Left => (0.0, args.speed, 0.0),
+            Action::Right => (0.0, -args.speed, 0.0),
+            Action::TurnLeft => (0.0, 0.0, args.turn_speed),
             Action::TurnRight => (0.0, 0.0, -args.turn_speed),
-            Action::Stop      => (0.0, 0.0, 0.0),
+            Action::Stop => (0.0, 0.0, 0.0),
         };
 
         // 5. 发送到底盘

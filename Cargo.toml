@@ -7,6 +7,9 @@ authors = ["Leon <echo_ai@foxmail.com>"]
 license = "MIT"
 repository = "https://github.com/DoraCN/feetech-servo-sdk"
 
+[features]
+mock = []
+
 [dependencies]
 # 异步运行时与串口
 tokio = { version = "1", features = ["full"] }

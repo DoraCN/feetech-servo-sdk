@@ -4,7 +4,7 @@ pub mod protocol;
 pub mod driver;
 
 // 添加 Mock 模块，并使其公开
-// #[cfg(feature = "mock")] // 可选：只在开启 mock feature 时编译
+#[cfg(feature = "mock")] // 可选：只在开启 mock feature 时编译
 pub mod mock;
 
 // Re-export common types

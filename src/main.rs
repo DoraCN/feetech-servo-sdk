@@ -66,14 +66,17 @@ enum Commands {
 
 // 辅助函数：将 Box<dyn MotorBus> 用于多态
 // 这样我们可以透明地切换 Real 和 Mock
+#[allow(dead_code)]
 async fn get_bus(args: &Cli) -> Result<Box<dyn MotorBus>> {
     if args.mock {
         info!("🤖 Initializing MOCK bus...");
-        // 假设 MockBus 在 lib 中可用，或者我们可以为了演示创建一个临时的
-        // 这里假设你在 lib.rs 导出了 mock::MockBus
-        // let bus = feetech_servo_sdk::mock::MockBus::new(&[1, 2, 3, 4, 5, 6]);
-        // 为了演示编译通过，这里我们暂时无法直接调用 lib 内部的 mock，
-        // 实际开发时请在 lib.rs 添加 `pub mod mock;`
+        #[cfg(feature = "mock")]
+        {
+            use feetech_servo_sdk::mock::MockBus;
+            let bus = MockBus::new(&[1, 2, 3, 4, 5, 6]);
+            return Ok(Box::new(bus));
+        }
+
         panic!("Mock bus requires `pub mod mock` in lib.rs. Please enable it.");
     } else {
         info!("🔌 Opening serial port {} at {}...", args.port, args.baud);

@@ -37,9 +37,9 @@ impl MockServoState {
 
         let now = Instant::now();
         let dt = now.duration_since(self.last_update).as_secs_f32();
-        
+
         // 模拟最大速度: 假设 5.0 rad/s (~280 deg/s)
-        let max_speed = 5.0; 
+        let max_speed = 5.0;
         let step = max_speed * dt;
 
         if (self.target_pos - self.current_pos).abs() <= step {
@@ -96,7 +96,7 @@ impl MotorBus for MockBus {
                 warn!("[Mock] Enable torque failed: Servo {} not found", id);
                 // 在 Mock 中我们通常选择不报错，或者根据 Strict 模式报错
                 // 这里为了模拟真实硬件找不到 ID 的情况：
-                return Err(ServoError::Timeout { id }); 
+                return Err(ServoError::Timeout { id });
             }
         }
         Ok(())
@@ -142,7 +142,7 @@ impl MotorBus for MockBus {
     async fn sync_read_positions(&mut self, ids: &[u8]) -> Result<Vec<f32>> {
         let mut results = Vec::new();
         let mut servos = self.servos.lock().unwrap();
-        
+
         for &id in ids {
             if let Some(s) = servos.get_mut(&id) {
                 s.update();

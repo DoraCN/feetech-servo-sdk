@@ -1,5 +1,5 @@
-use async_trait::async_trait;
 use crate::error::Result;
+use async_trait::async_trait;
 
 /// 舵机控制操作枚举
 #[derive(Debug, Clone, Copy)]
