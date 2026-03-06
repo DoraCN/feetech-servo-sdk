@@ -214,6 +214,19 @@ impl MotorBus for FeetechBus {
                 );
                 self.transfer(id, &packet, 6).await?;
             }
+            ControlOp::RawEffort(raw_tick) => {
+                // 按照要求：传入原始数据，转换为弧度后再写入
+                let rad = Self::tick_to_rad(raw_tick);
+                let tick = Self::rad_to_tick(rad);
+                let bytes = tick.to_le_bytes();
+
+                let packet = v0::pack_instruction(
+                    id,
+                    Instruction::Write,
+                    &[v0::ADDR_GOAL_POSITION, bytes[0], bytes[1]],
+                );
+                self.transfer(id, &packet, 6).await?;
+            }
             _ => return Err(ServoError::Protocol("Unsupported control mode".into())),
         }
         Ok(())

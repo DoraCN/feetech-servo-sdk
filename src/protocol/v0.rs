@@ -6,6 +6,8 @@ pub(crate) const HEADER: u16 = 0xFFFF;
 // STS/SMS 关键内存地址
 pub(crate) const ADDR_TORQUE_ENABLE: u8 = 40;
 pub(crate) const ADDR_GOAL_POSITION: u8 = 42;
+pub(crate) const ADDR_GOAL_SPEED: u8 = 46;
+pub(crate) const ADDR_MODE: u8 = 33;
 pub(crate) const ADDR_PRESENT_POSITION: u8 = 56;
 
 pub(crate) const ADDR_MAX_TORQUE: u8 = 16;
