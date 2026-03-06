@@ -24,12 +24,19 @@ pub trait MotorBus: Send + Sync {
     /// 读取单个电机位置 (返回弧度)
     async fn read_position(&mut self, id: u8) -> Result<f32>;
 
+    /// 读取单个电机原始位置 (返回 Ticks, i16)
+    async fn read_raw_position(&mut self, id: u8) -> Result<i16>;
+
     /// 写入单个电机目标
     async fn write_goal(&mut self, id: u8, op: ControlOp) -> Result<()>;
 
     /// 批量同步读取 (软件级实现)
     /// 返回值 Vec<f32> 顺序严格对应传入的 ids
     async fn sync_read_positions(&mut self, ids: &[u8]) -> Result<Vec<f32>>;
+
+    /// 批量同步读取原始数值 (软件级实现)
+    /// 返回值 Vec<i16> 顺序严格对应传入的 ids
+    async fn sync_read_raw_positions(&mut self, ids: &[u8]) -> Result<Vec<i16>>;
 
     /// 批量同步写入 (SYNC_WRITE 指令)
     async fn sync_write_goals(&mut self, commands: &[(u8, ControlOp)]) -> Result<()>;

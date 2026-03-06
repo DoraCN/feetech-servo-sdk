@@ -108,12 +108,17 @@ impl MotorBus for FeetechBus {
 
     #[instrument(skip(self))]
     async fn read_position(&mut self, id: u8) -> Result<f32> {
+        let pos_raw = self.read_raw_position(id).await?;
+        Ok(Self::tick_to_rad(pos_raw))
+    }
+
+    #[instrument(skip(self))]
+    async fn read_raw_position(&mut self, id: u8) -> Result<i16> {
         let packet = v0::pack_instruction(id, Instruction::Read, &[v0::ADDR_PRESENT_POSITION, 2]);
         // Resp: Header(2)+ID(1)+Len(1)+Err(1)+Param(2)+Sum(1) = 8 bytes
         let params = self.transfer(id, &packet, 8).await?;
 
-        let pos_raw = i16::from_le_bytes([params[0], params[1]]);
-        Ok(Self::tick_to_rad(pos_raw))
+        Ok(i16::from_le_bytes([params[0], params[1]]))
     }
 
     #[instrument(skip(self))]
@@ -140,9 +145,16 @@ impl MotorBus for FeetechBus {
     async fn sync_read_positions(&mut self, ids: &[u8]) -> Result<Vec<f32>> {
         let mut results = Vec::with_capacity(ids.len());
         for &id in ids {
-            // 遇到单个读取错误是否熔断？严格模式下：是。
-            let pos = self.read_position(id).await?;
-            results.push(pos);
+            results.push(self.read_position(id).await?);
+        }
+        Ok(results)
+    }
+
+    #[instrument(skip(self))]
+    async fn sync_read_raw_positions(&mut self, ids: &[u8]) -> Result<Vec<i16>> {
+        let mut results = Vec::with_capacity(ids.len());
+        for &id in ids {
+            results.push(self.read_raw_position(id).await?);
         }
         Ok(results)
     }

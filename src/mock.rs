@@ -114,14 +114,35 @@ impl MotorBus for MockBus {
     }
 
     async fn read_position(&mut self, id: u8) -> Result<f32> {
+        let tick = self.read_raw_position(id).await?;
+        let max_ticks = 4095.0;
+        let pi = std::f32::consts::PI;
+        let normalized = tick as f32 / max_ticks;
+        Ok((normalized - 0.5) * 2.0 * pi)
+    }
+
+    async fn read_raw_position(&mut self, id: u8) -> Result<i16> {
         let mut servos = self.servos.lock().unwrap();
         if let Some(s) = servos.get_mut(&id) {
-            s.update(); // 读取时触发物理模拟更新
-            Ok(s.current_pos)
+            s.update();
+            // 这里我们需要 rad_to_tick 的实现，由于 MockBus 不在 FeetechBus 内部，
+            // 我们可以手动实现这个简单的转换，或者把转换逻辑提取出来。
+            // 既然是 Mock，我们直接实现转换逻辑。
+            let rad = s.current_pos;
+            let resolution = 4096.0;
+            let max_ticks = 4095.0;
+            let pi = std::f32::consts::PI;
+
+            let normalized = (rad / (2.0 * pi)) + 0.5;
+            let tick = (normalized * resolution).round();
+            Ok(tick.clamp(0.0, max_ticks) as i16)
         } else {
             Err(ServoError::Timeout { id })
         }
     }
+
+    // 重新实现 read_position 以调用 read_raw_position 保持一致（可选）
+    // 或者直接保持原来的样子，但为了最佳实践，Mock 应该反映硬件
 
     async fn write_goal(&mut self, id: u8, op: ControlOp) -> Result<()> {
         let mut servos = self.servos.lock().unwrap();
@@ -141,15 +162,16 @@ impl MotorBus for MockBus {
 
     async fn sync_read_positions(&mut self, ids: &[u8]) -> Result<Vec<f32>> {
         let mut results = Vec::new();
-        let mut servos = self.servos.lock().unwrap();
-
         for &id in ids {
-            if let Some(s) = servos.get_mut(&id) {
-                s.update();
-                results.push(s.current_pos);
-            } else {
-                return Err(ServoError::Timeout { id });
-            }
+            results.push(self.read_position(id).await?);
+        }
+        Ok(results)
+    }
+
+    async fn sync_read_raw_positions(&mut self, ids: &[u8]) -> Result<Vec<i16>> {
+        let mut results = Vec::new();
+        for &id in ids {
+            results.push(self.read_raw_position(id).await?);
         }
         Ok(results)
     }

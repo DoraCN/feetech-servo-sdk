@@ -1,6 +1,6 @@
 [package]
 name = "feetech-servo-sdk"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "High-performance async Rust driver for Feetech STS/SMS servos."
 authors = ["Leon <echo_ai@foxmail.com>"]
@@ -16,8 +16,8 @@ tokio = { version = "1", features = ["full"] }
 tokio-serial = "5.4"                           # 跨平台异步串口
 
 # 错误处理与日志
-thiserror = "1.0"
-tracing = "0.1"   # 标准日志门面
+thiserror = "2.0.18"
+tracing = "0.1"      # 标准日志门面
 
 # 工具类
 bytes = "1"    # 高效字节操作
