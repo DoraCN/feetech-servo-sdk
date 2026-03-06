@@ -1,6 +1,5 @@
 use clap::Parser;
 use feetech_servo_sdk::{FeetechBus, MotorBus};
-use std::time::Duration;
 use tracing::{Level, error, info};
 use tracing_subscriber::FmtSubscriber;
 
@@ -58,15 +57,10 @@ async fn main() -> anyhow::Result<()> {
         args.ids
     );
 
-    for &id in &args.ids {
-        match bus.set_middle_position(id).await {
-            Ok(_) => info!("✅ ID {} set to middle position successfully.", id),
-            Err(e) => error!("❌ Failed to set ID {} to middle: {}", id, e),
-        }
-        // [修复] 增加延时，校准指令涉及 NVM 写入或内部重置，需要时间处理
-        // if !args.mock {
-        //     tokio::time::sleep(Duration::from_millis(200)).await;
-        // }
+    if let Err(e) = bus.sync_set_middle_positions(&args.ids).await {
+        error!("❌ Batch calibration failed: {}", e);
+    } else {
+        info!("✅ All IDs set to middle position successfully.");
     }
 
     info!("Calibration complete.");

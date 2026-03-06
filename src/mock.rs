@@ -154,6 +154,13 @@ impl MotorBus for MockBus {
         }
     }
 
+    async fn sync_set_middle_positions(&mut self, ids: &[u8]) -> Result<()> {
+        for &id in ids {
+            self.set_middle_position(id).await?;
+        }
+        Ok(())
+    }
+
     // 重新实现 read_position 以调用 read_raw_position 保持一致（可选）
     // 或者直接保持原来的样子，但为了最佳实践，Mock 应该反映硬件
 

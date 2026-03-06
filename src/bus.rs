@@ -30,6 +30,9 @@ pub trait MotorBus: Send + Sync {
     /// 设置当前位置为中位 (写入 128 到地址 40)
     async fn set_middle_position(&mut self, id: u8) -> Result<()>;
 
+    /// 批量设置中位
+    async fn sync_set_middle_positions(&mut self, ids: &[u8]) -> Result<()>;
+
     /// 写入单个电机目标
     async fn write_goal(&mut self, id: u8, op: ControlOp) -> Result<()>;
 

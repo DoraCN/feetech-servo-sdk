@@ -172,6 +172,14 @@ impl MotorBus for FeetechBus {
     }
 
     #[instrument(skip(self))]
+    async fn sync_set_middle_positions(&mut self, ids: &[u8]) -> Result<()> {
+        for &id in ids {
+            self.set_middle_position(id).await?;
+        }
+        Ok(())
+    }
+
+    #[instrument(skip(self))]
     async fn write_goal(&mut self, id: u8, op: ControlOp) -> Result<()> {
         match op {
             ControlOp::Position(rad) => {
