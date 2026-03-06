@@ -12,12 +12,22 @@ use tracing::{info, instrument, trace};
 const RESOLUTION: f32 = 4096.0;
 const MAX_TICKS: f32 = 4095.0;
 
+/// 硬件串口通信总线 (真实设备)
+///
+/// 实现了 `MotorBus` 协议，通过底层 `tokio-serial` 与真实的物理飞特舵机进行通信。
+/// 内置了发送前的缓冲区清理、接收超时拦截以及基础重传（特定方法）等鲁棒性机制。
 pub struct FeetechBus {
     stream: SerialStream,
     read_timeout: Duration,
 }
 
 impl FeetechBus {
+    /// 创建并连接到一个新的串口设备
+    ///
+    /// - `path`: 串口设备路径 (例如: `/dev/ttyUSB0` 或 `COM3`)
+    /// - `baud_rate`: 串口波特率 (例如: STS3215 常用 `1000000`)
+    ///
+    /// **注意**: 默认读超时为 20ms，并且每次收发指令会对 RX 缓冲区进行自动清理。
     pub fn new(path: &str, baud_rate: u32) -> Result<Self> {
         let stream = tokio_serial::new(path, baud_rate)
             .timeout(Duration::from_millis(100))
@@ -29,20 +39,32 @@ impl FeetechBus {
         })
     }
 
-    /// 显式停机：关闭所有扭矩
+    /// 显式停机：关闭所有指定舵机的扭矩
+    ///
+    /// 等价于对所有 ID 调用 `disable_torque`并打印日志。
+    /// - `ids`: 需要停机的舵机 ID 列表。
     pub async fn shutdown(&mut self, ids: &[u8]) -> Result<()> {
         info!("Shutting down motors: {:?}", ids);
         self.disable_torque(ids).await
     }
 
-    /// [新增] 修改 8位 寄存器 (用于调整 P-Gain 等参数)
+    /// 修改底层 8位 寄存器参数
+    ///
+    /// 此方法用于配置舵机的非标准参数 (如: PID 参数, ID 修改)。
+    /// - `address`: 寄存器地址
+    /// - `value`: 8位目标值
     pub async fn write_byte(&mut self, id: u8, address: u8, value: u8) -> Result<()> {
         let packet = v0::pack_instruction(id, Instruction::Write, &[address, value]);
         self.transfer(id, &packet, 6).await?;
         Ok(())
     }
 
-    /// [新增] 修改 16位 寄存器 (用于调整 Max Torque 等)
+    /// 修改底层 16位 寄存器参数
+    ///
+    /// 此方法用于配置由两个字节组成的参数 (如: 速度限制, 最大力矩限制)。
+    /// 采用低字节在前(Little Endian)的形式发送。
+    /// - `address`: 起始寄存器地址
+    /// - `value`: 16位目标值
     pub async fn write_word(&mut self, id: u8, address: u8, value: u16) -> Result<()> {
         let bytes = value.to_le_bytes();
         let packet = v0::pack_instruction(id, Instruction::Write, &[address, bytes[0], bytes[1]]);

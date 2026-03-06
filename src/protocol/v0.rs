@@ -1,18 +1,18 @@
 use crate::error::{Result, ServoError};
 use bytes::BufMut;
 
-pub const HEADER: u16 = 0xFFFF;
+pub(crate) const HEADER: u16 = 0xFFFF;
 
 // STS/SMS 关键内存地址
-pub const ADDR_TORQUE_ENABLE: u8 = 40;
-pub const ADDR_GOAL_POSITION: u8 = 42;
-pub const ADDR_PRESENT_POSITION: u8 = 56;
+pub(crate) const ADDR_TORQUE_ENABLE: u8 = 40;
+pub(crate) const ADDR_GOAL_POSITION: u8 = 42;
+pub(crate) const ADDR_PRESENT_POSITION: u8 = 56;
 
-pub const ADDR_MAX_TORQUE: u8 = 16;
-pub const ADDR_P_COEFFICIENT: u8 = 21; // 比例增益 (刚度)
+pub(crate) const ADDR_MAX_TORQUE: u8 = 16;
+pub(crate) const ADDR_P_COEFFICIENT: u8 = 21; // 比例增益 (刚度)
 
 // 指令集
-pub enum Instruction {
+pub(crate) enum Instruction {
     Ping = 0x01,
     Read = 0x02,
     Write = 0x03,
@@ -31,7 +31,7 @@ fn calculate_checksum(id: u8, length: u8, instruction: u8, params: &[u8]) -> u8 
 }
 
 /// 构建发送数据包
-pub fn pack_instruction(id: u8, instr: Instruction, params: &[u8]) -> Vec<u8> {
+pub(crate) fn pack_instruction(id: u8, instr: Instruction, params: &[u8]) -> Vec<u8> {
     let length = (params.len() + 2) as u8; // Instruction + Params + Checksum
     let instr_byte = instr as u8;
 
@@ -51,7 +51,7 @@ pub fn pack_instruction(id: u8, instr: Instruction, params: &[u8]) -> Vec<u8> {
 
 /// 解析并验证响应包
 /// 响应格式: [0xFF, 0xFF, ID, Length, Error, Param..., Checksum]
-pub fn parse_response(id: u8, data: &[u8]) -> Result<Vec<u8>> {
+pub(crate) fn parse_response(id: u8, data: &[u8]) -> Result<Vec<u8>> {
     if data.len() < 6 {
         return Err(ServoError::Protocol("Response too short".into()));
     }

@@ -54,14 +54,23 @@ impl MockServoState {
     }
 }
 
-/// 纯内存的模拟总线
+/// 纯内存的模拟总线 (测试专用)
+///
+/// 这是一个非常有用的功能，允许你在没有物理硬件连接的情况下，
+/// 对你的高级控制逻辑进行测试和快速迭代。
+///
+/// `MockBus` 内部持有一个哈希表来记录每个“虚拟舵机”的当前位置、目标位置和使能状态。
+/// 当你调用 `read_position` 时，它会根据时间推移简单地模拟电机的物理运动。
 pub struct MockBus {
     // 使用 Arc<Mutex> 允许内部状态在多次调用间保持
     servos: Arc<Mutex<HashMap<u8, MockServoState>>>,
 }
 
 impl MockBus {
-    /// 创建一个新的模拟总线，预设一些电机 ID
+    /// 创建一个新的模拟总线，并预先注册需要模拟的舵机 ID。
+    ///
+    /// 所有被注册的舵机初始位置均为 0.0 弧度，并且处于失能 (扭矩关闭) 状态。
+    /// - `ids`: 虚拟舵机网络中存在的 ID 列表。
     pub fn new(ids: &[u8]) -> Self {
         let mut map = HashMap::new();
         for &id in ids {
