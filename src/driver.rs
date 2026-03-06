@@ -25,7 +25,7 @@ impl FeetechBus {
 
         Ok(Self {
             stream,
-            read_timeout: Duration::from_millis(10),
+            read_timeout: Duration::from_millis(20), // 增加默认超时到 20ms
         })
     }
 
@@ -52,17 +52,36 @@ impl FeetechBus {
 
     // 私有辅助：发送并接收响应
     async fn transfer(&mut self, id: u8, packet: &[u8], response_len: usize) -> Result<Vec<u8>> {
-        // Clear buffer before write (simple flush)
-        // self.stream.try_read(...) // optional cleanup
+        self.transfer_with_timeout(id, packet, response_len, self.read_timeout)
+            .await
+    }
+
+    /// [增强] 带有特定超时的传输，并排空干扰数据
+    async fn transfer_with_timeout(
+        &mut self,
+        id: u8,
+        packet: &[u8],
+        response_len: usize,
+        timeout: Duration,
+    ) -> Result<Vec<u8>> {
+        // [优化] 更激进的 RX 缓冲区排空：循环排空直到无数据
+        let mut discard = [0u8; 128];
+        let flush_timeout = Duration::from_millis(2);
+        while let Ok(Ok(n)) =
+            tokio::time::timeout(flush_timeout, self.stream.read(&mut discard)).await
+        {
+            if n == 0 {
+                break;
+            }
+            trace!("Flushed {} bytes from RX buffer", n);
+        }
 
         trace!("TX -> {:02X?}", packet);
         self.stream.write_all(packet).await?;
 
         let mut buf = vec![0u8; response_len];
-
-        // 使用 tokio::select 实现读取超时
         let read_future = self.stream.read_exact(&mut buf);
-        match tokio::time::timeout(self.read_timeout, read_future).await {
+        match tokio::time::timeout(timeout, read_future).await {
             Ok(io_res) => io_res?,
             Err(_) => return Err(ServoError::Timeout { id }),
         };
@@ -119,6 +138,37 @@ impl MotorBus for FeetechBus {
         let params = self.transfer(id, &packet, 8).await?;
 
         Ok(i16::from_le_bytes([params[0], params[1]]))
+    }
+
+    #[instrument(skip(self))]
+    async fn set_middle_position(&mut self, id: u8) -> Result<()> {
+        info!("Setting ID {} current position as middle position...", id);
+        // 根据说明书，写 128 到 40 号地址 (ADDR_TORQUE_ENABLE)
+        let packet = v0::pack_instruction(id, Instruction::Write, &[v0::ADDR_TORQUE_ENABLE, 128]);
+
+        // [修复] 对于校准指令，使用极长的超时 (1000ms) 并且增加重试机制
+        let mut last_error = None;
+        for attempt in 1..=3 {
+            match self
+                .transfer_with_timeout(id, &packet, 6, Duration::from_millis(1000))
+                .await
+            {
+                Ok(_) => {
+                    info!(
+                        "ID {} set to middle position successfully on attempt {}.",
+                        id, attempt
+                    );
+                    return Ok(());
+                }
+                Err(e) => {
+                    last_error = Some(e);
+                    if attempt < 3 {
+                        tokio::time::sleep(Duration::from_millis(50)).await; // 微小延迟后重试
+                    }
+                }
+            }
+        }
+        Err(last_error.unwrap())
     }
 
     #[instrument(skip(self))]

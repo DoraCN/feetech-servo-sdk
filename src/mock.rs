@@ -125,9 +125,6 @@ impl MotorBus for MockBus {
         let mut servos = self.servos.lock().unwrap();
         if let Some(s) = servos.get_mut(&id) {
             s.update();
-            // 这里我们需要 rad_to_tick 的实现，由于 MockBus 不在 FeetechBus 内部，
-            // 我们可以手动实现这个简单的转换，或者把转换逻辑提取出来。
-            // 既然是 Mock，我们直接实现转换逻辑。
             let rad = s.current_pos;
             let resolution = 4096.0;
             let max_ticks = 4095.0;
@@ -136,6 +133,22 @@ impl MotorBus for MockBus {
             let normalized = (rad / (2.0 * pi)) + 0.5;
             let tick = (normalized * resolution).round();
             Ok(tick.clamp(0.0, max_ticks) as i16)
+        } else {
+            Err(ServoError::Timeout { id })
+        }
+    }
+
+    async fn set_middle_position(&mut self, id: u8) -> Result<()> {
+        let mut servos = self.servos.lock().unwrap();
+        if let Some(s) = servos.get_mut(&id) {
+            info!(
+                "[Mock] Setting ID {} current position as middle (reset to 0.0 rad)",
+                id
+            );
+            s.current_pos = 0.0;
+            s.target_pos = 0.0;
+            s.last_update = std::time::Instant::now();
+            Ok(())
         } else {
             Err(ServoError::Timeout { id })
         }
