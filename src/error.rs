@@ -8,6 +8,7 @@ pub enum ServoError {
     Io(#[from] std::io::Error),
 
     /// 串口通信错误 (例如: 端口不存在、权限不足)
+    #[cfg(feature = "tokio-serial-impl")]
     #[error("Serial Port Error: {0}")]
     Serial(#[from] tokio_serial::Error),
 

@@ -3,68 +3,68 @@ use crate::error::{Result, ServoError};
 use crate::protocol::v0::{self, Instruction};
 use async_trait::async_trait;
 use std::f32::consts::PI;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::time::Duration;
-use tokio_serial::{SerialPortBuilderExt, SerialStream};
 use tracing::{info, instrument, trace};
 
 // STS3215 规格
 const RESOLUTION: f32 = 4096.0;
 const MAX_TICKS: f32 = 4095.0;
 
-/// 硬件串口通信总线 (真实设备)
+/// 飞特协议核心控制器（与 I/O 无关）
 ///
-/// 实现了 `MotorBus` 协议，通过底层 `tokio-serial` 与真实的物理飞特舵机进行通信。
-/// 内置了发送前的缓冲区清理、接收超时拦截以及基础重传（特定方法）等鲁棒性机制。
-pub struct FeetechBus {
-    stream: SerialStream,
+/// 泛型参数 `S` 可以是任何实现了 `AsyncRead + AsyncWrite + Unpin + Send` 的字节流，
+/// 例如 `tokio_serial::SerialStream`（串口）或自定义的 USB 字节流（Android）。
+///
+/// 通常不直接使用此类型，而是使用具名别名：
+/// - 串口：[`FeetechBus`]（需开启 `tokio-serial-impl` feature）
+/// - 自定义流：`FeetechController::from_stream(your_stream)`
+pub struct FeetechController<S> {
+    stream: S,
     read_timeout: Duration,
 }
 
-impl FeetechBus {
-    /// 创建并连接到一个新的串口设备
+impl<S> FeetechController<S>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send,
+{
+    /// 通用构造器：接受任意满足约束的字节流（依赖反转入口）
     ///
-    /// - `path`: 串口设备路径 (例如: `/dev/ttyUSB0` 或 `COM3`)
-    /// - `baud_rate`: 串口波特率 (例如: STS3215 常用 `1000000`)
+    /// - `stream`: 实现了 `AsyncRead + AsyncWrite + Unpin + Send` 的 I/O 流
     ///
-    /// **注意**: 默认读超时为 20ms，并且每次收发指令会对 RX 缓冲区进行自动清理。
-    pub fn new(path: &str, baud_rate: u32) -> Result<Self> {
-        let stream = tokio_serial::new(path, baud_rate)
-            .timeout(Duration::from_millis(100))
-            .open_native_async()?;
-
-        Ok(Self {
+    /// 默认读超时为 20ms。如需自定义，使用 [`FeetechController::with_timeout`]。
+    pub fn from_stream(stream: S) -> Self {
+        Self {
             stream,
-            read_timeout: Duration::from_millis(20), // 增加默认超时到 20ms
-        })
+            read_timeout: Duration::from_millis(20),
+        }
+    }
+
+    /// 带自定义读超时的构造器
+    pub fn with_timeout(stream: S, read_timeout: Duration) -> Self {
+        Self {
+            stream,
+            read_timeout,
+        }
     }
 
     /// 显式停机：关闭所有指定舵机的扭矩
-    ///
-    /// 等价于对所有 ID 调用 `disable_torque`并打印日志。
-    /// - `ids`: 需要停机的舵机 ID 列表。
-    pub async fn shutdown(&mut self, ids: &[u8]) -> Result<()> {
+    pub async fn shutdown(&mut self, ids: &[u8]) -> Result<()>
+    where
+        S: Sync,
+    {
         info!("Shutting down motors: {:?}", ids);
         self.disable_torque(ids).await
     }
 
-    /// 修改底层 8位 寄存器参数
-    ///
-    /// 此方法用于配置舵机的非标准参数 (如: PID 参数, ID 修改)。
-    /// - `address`: 寄存器地址
-    /// - `value`: 8位目标值
+    /// 修改底层 8 位寄存器参数
     pub async fn write_byte(&mut self, id: u8, address: u8, value: u8) -> Result<()> {
         let packet = v0::pack_instruction(id, Instruction::Write, &[address, value]);
         self.transfer(id, &packet, 6).await?;
         Ok(())
     }
 
-    /// 修改底层 16位 寄存器参数
-    ///
-    /// 此方法用于配置由两个字节组成的参数 (如: 速度限制, 最大力矩限制)。
-    /// 采用低字节在前(Little Endian)的形式发送。
-    /// - `address`: 起始寄存器地址
-    /// - `value`: 16位目标值
+    /// 修改底层 16 位寄存器参数（小端序）
     pub async fn write_word(&mut self, id: u8, address: u8, value: u16) -> Result<()> {
         let bytes = value.to_le_bytes();
         let packet = v0::pack_instruction(id, Instruction::Write, &[address, bytes[0], bytes[1]]);
@@ -72,13 +72,13 @@ impl FeetechBus {
         Ok(())
     }
 
-    // 私有辅助：发送并接收响应
+    // --- 私有协议辅助 ---
+
     async fn transfer(&mut self, id: u8, packet: &[u8], response_len: usize) -> Result<Vec<u8>> {
         self.transfer_with_timeout(id, packet, response_len, self.read_timeout)
             .await
     }
 
-    /// [增强] 带有特定超时的传输，并排空干扰数据
     async fn transfer_with_timeout(
         &mut self,
         id: u8,
@@ -86,7 +86,7 @@ impl FeetechBus {
         response_len: usize,
         timeout: Duration,
     ) -> Result<Vec<u8>> {
-        // [优化] 更激进的 RX 缓冲区排空：循环排空直到无数据
+        // 发送前排空 RX 缓冲区
         let mut discard = [0u8; 128];
         let flush_timeout = Duration::from_millis(2);
         while let Ok(Ok(n)) =
@@ -114,7 +114,7 @@ impl FeetechBus {
 
     // 物理单位转换: Radians <-> Ticks
     fn rad_to_tick(rad: f32) -> i16 {
-        let normalized = (rad / (2.0 * PI)) + 0.5; // Map -PI~PI to 0~1
+        let normalized = (rad / (2.0 * PI)) + 0.5;
         let tick = (normalized * RESOLUTION).round();
         tick.clamp(0.0, MAX_TICKS) as i16
     }
@@ -126,13 +126,15 @@ impl FeetechBus {
 }
 
 #[async_trait]
-impl MotorBus for FeetechBus {
+impl<S> MotorBus for FeetechController<S>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + Sync,
+{
     #[instrument(skip(self))]
     async fn enable_torque(&mut self, ids: &[u8]) -> Result<()> {
-        // 简单实现：循环发送。如果追求性能可用 SyncWrite
         for &id in ids {
             let packet = v0::pack_instruction(id, Instruction::Write, &[v0::ADDR_TORQUE_ENABLE, 1]);
-            self.transfer(id, &packet, 6).await?; // Write returns status packet (6 bytes)
+            self.transfer(id, &packet, 6).await?;
         }
         Ok(())
     }
@@ -141,7 +143,6 @@ impl MotorBus for FeetechBus {
     async fn disable_torque(&mut self, ids: &[u8]) -> Result<()> {
         for &id in ids {
             let packet = v0::pack_instruction(id, Instruction::Write, &[v0::ADDR_TORQUE_ENABLE, 0]);
-            // Best effort shutdown, ignore errors
             let _ = self.transfer(id, &packet, 6).await;
         }
         Ok(())
@@ -156,19 +157,15 @@ impl MotorBus for FeetechBus {
     #[instrument(skip(self))]
     async fn read_raw_position(&mut self, id: u8) -> Result<i16> {
         let packet = v0::pack_instruction(id, Instruction::Read, &[v0::ADDR_PRESENT_POSITION, 2]);
-        // Resp: Header(2)+ID(1)+Len(1)+Err(1)+Param(2)+Sum(1) = 8 bytes
         let params = self.transfer(id, &packet, 8).await?;
-
         Ok(i16::from_le_bytes([params[0], params[1]]))
     }
 
     #[instrument(skip(self))]
     async fn set_middle_position(&mut self, id: u8) -> Result<()> {
         info!("Setting ID {} current position as middle position...", id);
-        // 根据说明书，写 128 到 40 号地址 (ADDR_TORQUE_ENABLE)
         let packet = v0::pack_instruction(id, Instruction::Write, &[v0::ADDR_TORQUE_ENABLE, 128]);
 
-        // [修复] 对于校准指令，使用极长的超时 (1000ms) 并且增加重试机制
         let mut last_error = None;
         for attempt in 1..=3 {
             match self
@@ -176,16 +173,13 @@ impl MotorBus for FeetechBus {
                 .await
             {
                 Ok(_) => {
-                    info!(
-                        "ID {} set to middle position successfully on attempt {}.",
-                        id, attempt
-                    );
+                    info!("ID {} set to middle position successfully on attempt {}.", id, attempt);
                     return Ok(());
                 }
                 Err(e) => {
                     last_error = Some(e);
                     if attempt < 3 {
-                        tokio::time::sleep(Duration::from_millis(50)).await; // 微小延迟后重试
+                        tokio::time::sleep(Duration::from_millis(50)).await;
                     }
                 }
             }
@@ -215,11 +209,9 @@ impl MotorBus for FeetechBus {
                 self.transfer(id, &packet, 6).await?;
             }
             ControlOp::RawEffort(raw_tick) => {
-                // 按照要求：传入原始数据，转换为弧度后再写入
                 let rad = Self::tick_to_rad(raw_tick);
                 let tick = Self::rad_to_tick(rad);
                 let bytes = tick.to_le_bytes();
-
                 let packet = v0::pack_instruction(
                     id,
                     Instruction::Write,
@@ -232,8 +224,6 @@ impl MotorBus for FeetechBus {
         Ok(())
     }
 
-    /// 软件级同步读：由于 Protocol 0 标准无 SyncRead，此处使用串行循环读取
-    /// 未来优化：若固件支持 BulkRead 可在此替换
     #[instrument(skip(self))]
     async fn sync_read_positions(&mut self, ids: &[u8]) -> Result<Vec<f32>> {
         let mut results = Vec::with_capacity(ids.len());
@@ -252,17 +242,15 @@ impl MotorBus for FeetechBus {
         Ok(results)
     }
 
-    /// 硬件级同步写
     #[instrument(skip(self, commands))]
     async fn sync_write_goals(&mut self, commands: &[(u8, ControlOp)]) -> Result<()> {
         if commands.is_empty() {
             return Ok(());
         }
 
-        // Sync Write 格式: [Addr, Len, ID1, Data1_L, Data1_H, ID2, Data2_L, Data2_H ...]
         let mut params = Vec::new();
         params.push(v0::ADDR_GOAL_POSITION);
-        params.push(2); // 每个电机的数据长度
+        params.push(2);
 
         for (id, op) in commands {
             if let ControlOp::Position(rad) = op {
@@ -278,13 +266,35 @@ impl MotorBus for FeetechBus {
             }
         }
 
-        // Broadcast ID 0xFE for SyncWrite
         let packet = v0::pack_instruction(0xFE, Instruction::SyncWrite, &params);
-
         trace!("SyncWrite TX -> {:02X?}", packet);
         self.stream.write_all(&packet).await?;
         // SyncWrite 不返回响应
-
         Ok(())
+    }
+}
+
+// --- Feature-gated 串口便捷包装 ---
+
+#[cfg(feature = "tokio-serial-impl")]
+use tokio_serial::{SerialPortBuilderExt, SerialStream};
+
+/// 串口总线的具名类型别名（需开启 `tokio-serial-impl` feature，默认开启）
+///
+/// 等价于 `FeetechController<SerialStream>`，保持向后兼容。
+#[cfg(feature = "tokio-serial-impl")]
+pub type FeetechBus = FeetechController<SerialStream>;
+
+#[cfg(feature = "tokio-serial-impl")]
+impl FeetechController<SerialStream> {
+    /// 创建并连接到一个串口设备
+    ///
+    /// - `path`: 串口设备路径（如 `/dev/ttyUSB0` 或 `COM3`）
+    /// - `baud_rate`: 波特率（STS3215 常用 `1_000_000`）
+    pub fn new(path: &str, baud_rate: u32) -> Result<Self> {
+        let stream = tokio_serial::new(path, baud_rate)
+            .timeout(Duration::from_millis(100))
+            .open_native_async()?;
+        Ok(Self::from_stream(stream))
     }
 }

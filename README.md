@@ -9,7 +9,8 @@
 
 ## ✨ 核心特性
 
-* **🚀 全异步架构**: 基于 `Tokio` 和 `tokio-serial`，非阻塞 I/O，完美契合高性能异步控制系统。
+* **🚀 全异步架构**: 基于 `Tokio`，非阻塞 I/O，完美契合高性能异步控制系统。
+* **🔌 I/O 解耦设计**: 核心协议引擎 `FeetechController<S>` 与具体 I/O 实现完全分离，可注入任意 `AsyncRead + AsyncWrite` 字节流（串口、USB、网络等）。
 * **🛡️ 类型安全与总线互斥**: 利用 Rust 的所有权模型 (`&mut self`) 确保总线访问的互斥性，在编译期杜绝指令冲突。
 * **📐 物理单位优先**: 接口层统一使用 **弧度 (Radians)**，内部自动处理 `Radians <-> Raw Ticks` 转换，简化运动学实现。
 * **⚡ 批处理深度优化**: 支持硬件级同步写 (`SYNC_WRITE`)，大幅降低多关节同步控制的延迟。
@@ -25,6 +26,12 @@
 feetech-servo-sdk = "0.2.0"
 tokio = { version = "1", features = ["full"] }
 anyhow = "1.0"
+```
+
+默认开启 `tokio-serial-impl` feature，提供开箱即用的串口支持。如需在 Android 等平台注入自定义 I/O 流，关闭默认 features：
+
+```toml
+feetech-servo-sdk = { version = "0.2.0", default-features = false }
 ```
 
 ## 💻 快速开始 (Usage)
@@ -105,12 +112,24 @@ async fn main() -> anyhow::Result<()> {
     // 接口与真实总线完全一致
     bus.enable_torque(&[1]).await?;
     bus.write_goal(1, ControlOp::Position(1.0)).await?;
-    
+
     let pos = bus.read_position(1).await?;
     println!("模拟器当前位置: {}", pos);
 
     Ok(())
 }
+```
+
+### 4. 自定义 I/O 流 (Android / 跨平台)
+
+关闭默认 features 后，可以将任意实现了 `AsyncRead + AsyncWrite + Unpin + Send` 的字节流注入到协议引擎中：
+
+```rust
+use feetech_servo_sdk::{FeetechController, MotorBus};
+
+// your_usb_stream 可以是 Android USB 驱动、TCP socket 或任何异步字节流
+let mut bus = FeetechController::from_stream(your_usb_stream);
+bus.enable_torque(&[1]).await?;
 ```
 
 ## 🛠️ 命令行调试工具 (CLI)

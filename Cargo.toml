@@ -1,19 +1,21 @@
 [package]
 name = "feetech-servo-sdk"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 description = "High-performance async Rust driver for Feetech STS/SMS servos."
-authors = ["Leon <echo_ai@foxmail.com>"]
+authors = ["Leon <leon@leonrust.com>"]
 license = "MIT"
 repository = "https://github.com/DoraCN/feetech-servo-sdk"
 
 [features]
+default = ["tokio-serial-impl"]
+tokio-serial-impl = ["dep:tokio-serial"]
 mock = []
 
 [dependencies]
 # 异步运行时与串口
 tokio = { version = "1", features = ["full"] }
-tokio-serial = "5.4"                           # 跨平台异步串口
+tokio-serial = { version = "5.4", optional = true }
 
 # 错误处理与日志
 thiserror = "2.0.18"

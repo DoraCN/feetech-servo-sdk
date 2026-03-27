@@ -91,8 +91,11 @@ pub mod mock;
 
 // Re-export common types
 pub use bus::{ControlOp, MotorBus};
-pub use driver::FeetechBus;
+pub use driver::FeetechController;
 pub use error::ServoError;
 
+#[cfg(feature = "tokio-serial-impl")]
+pub use driver::FeetechBus;
+
 #[cfg(feature = "mock")]
-pub use mock::MockBus; // 可选导出
+pub use mock::MockBus;
