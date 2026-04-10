@@ -134,17 +134,67 @@ bus.enable_torque(&[1]).await?;
 
 ## 🛠️ 命令行调试工具 (CLI)
 
-SDK 内置了常用的调试指令，可以快速测试硬件状态。
+SDK 内置了多个调试工具，位于 `examples/` 目录。以下是所有示例的详细说明：
+
+### 基础工具
+
+| 示例 | 功能 | 命令 |
+|------|------|------|
+| **scan** | 扫描并发现总线上所有舵机的 ID 和位置 | `cargo run --example scan -- -p /dev/ttyUSB0` |
+| **set_id** | 设置舵机 ID（使用广播 ID，适用于新舵机配置） | `cargo run --example set_id -- -p /dev/ttyUSB0 -n 5` |
+| **read_info** | 读取舵机详细信息（Firmware/Software版本、ID、波特率、型号、位置） | `cargo run --example read_info -- -p /dev/ttyUSB0 -i 1` |
+| **read_raw** | 读取舵机原始位置数值（0-4095） | `cargo run --example read_raw -- -p /dev/ttyUSB0 --ids 1,2,3` |
+| **set_mid** | 将当前物理位置设置为舵机中位（零点标定） | `cargo run --example set_mid -- -p /dev/ttyUSB0 --ids 1` |
+| **monitor** | 实时监控舵机位置（连续读取并显示） | `cargo run --example monitor -- -p /dev/ttyUSB0` |
+
+### 控制示例
+
+| 示例 | 功能 | 命令 |
+|------|------|------|
+| **simple_move** | 简单位置控制（指定角度移动） | `cargo run --example simple_move -- -p /dev/ttyUSB0 -i 1 --degrees 90` |
+| **raw_effort** | 直接 PWM 控制（绕过位置环，原始 PWM 信号） | `cargo run --example raw_effort -- -p /dev/ttyUSB0 -i 1 --effort 2048` |
+| **six_dof_move** | 6自由度机械臂平滑移动到目标位置 | `cargo run --example six_dof_move -- -p /dev/ttyUSB0` |
+
+### 遥操作与高级控制
+
+| 示例 | 功能 | 命令 |
+|------|------|------|
+| **teleop** | 主从遥操作（两个 SO-100 机械臂镜像控制） | `cargo run --example teleop -- -l /dev/ttyUSB0 -f /dev/ttyUSB1` |
+| **teleop_simple_safe** | 带安全停车功能的简单遥操作 | `cargo run --example teleop_simple_safe -- -l /dev/ttyUSB0 -f /dev/ttyUSB1` |
+| **keyboard_control** | 键盘平滑控制（方向键控制多个舵机） | `cargo run --example keyboard_control -- -p /dev/ttyUSB0` |
+| **omni_car** | 全向轮小车控制（基于舵机） | `cargo run --example omni_car -- -p /dev/ttyUSB0` |
+
+### 使用示例
 
 ```bash
-# 扫描串口上的所有舵机
-cargo run --example scan -- --port /dev/ttyUSB0
+# 1. 扫描发现舵机
+cargo run --example scan -- -p /dev/ttyUSB0
 
-# 读取原始位置数值
-cargo run --example read_raw -- --port /dev/ttyUSB0 --ids 1,2,3
+# 2. 读取舵机信息（假设发现 ID 为 6）
+cargo run --example read_info -- -p /dev/ttyUSB0 -i 6
 
-# 简单的机械臂遥操作演示 (主从镜像)
-cargo run --example teleop_simple_safe -- --leader-port /dev/ttyUSB0 --follower-port /dev/ttyUSB1
+# 3. 设置新舵机 ID（假设新舵机出厂 ID 相同，需要逐个设置）
+# 只连接一个舵机，断电其他舵机，然后设置
+cargo run --example set_id -- -p /dev/ttyUSB0 -n 1   # 设置为 ID 1
+cargo run --example set_id -- -p /dev/ttyUSB0 -n 2   # 设置为 ID 2（断电重启第一个后）
+cargo run --example set_id -- -p /dev/ttyUSB0 -n 3   # 设置为 ID 3
+
+# 4. 再次扫描确认
+cargo run --example scan -- -p /dev/ttyUSB0
+
+# 5. 简单移动测试
+cargo run --example simple_move -- -p /dev/ttyUSB0 -i 1 --degrees 90
+
+# 6. 监控位置
+cargo run --example monitor -- -p /dev/ttyUSB0
+```
+
+### 模拟测试
+
+所有示例都支持 `--features mock` 进行无硬件测试：
+
+```bash
+cargo run --example monitor --features mock -- --mock
 ```
 
 ## ⚙️ 硬件连接指南
