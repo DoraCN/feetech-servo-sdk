@@ -134,37 +134,360 @@ bus.enable_torque(&[1]).await?;
 
 ## 🛠️ 命令行调试工具 (CLI)
 
-SDK 内置了多个调试工具，位于 `examples/` 目录。以下是所有示例的详细说明：
+SDK 内置了多个调试工具，位于 `examples/` 目录。以下是所有示例的详细参数说明：
 
-### 基础工具
+---
 
-| 示例          | 功能                                                              | 命令                                                          |
-| ------------- | ----------------------------------------------------------------- | ------------------------------------------------------------- |
-| **scan**      | 扫描并发现总线上所有舵机的 ID 和位置                              | `cargo run --example scan -- -p /dev/ttyUSB0`                 |
-| **set_id**    | 设置舵机 ID（使用广播 ID，适用于新舵机配置）                      | `cargo run --example set_id -- -p /dev/ttyUSB0 -n 5`          |
-| **read_info** | 读取舵机详细信息（Firmware/Software版本、ID、波特率、型号、位置） | `cargo run --example read_info -- -p /dev/ttyUSB0 -i 1`       |
-| **read_raw**  | 读取舵机原始位置数值（0-4095）                                    | `cargo run --example read_raw -- -p /dev/ttyUSB0 --ids 1,2,3` |
-| **set_mid**   | 将当前物理位置设置为舵机中位（零点标定）                          | `cargo run --example set_mid -- -p /dev/ttyUSB0 --ids 1`      |
-| **monitor**   | 实时监控舵机位置（连续读取并显示）                                | `cargo run --example monitor -- -p /dev/ttyUSB0`              |
+### scan - 扫描舵机
 
-### 控制示例
+扫描并发现总线上所有舵机的 ID 和位置。
 
-| 示例             | 功能                                       | 命令                                                                   |
-| ---------------- | ------------------------------------------ | ---------------------------------------------------------------------- |
-| **simple_move**  | 简单位置控制（指定角度移动）               | `cargo run --example simple_move -- -p /dev/ttyUSB0 -i 1 --degrees 90` |
-| **raw_effort**   | 直接 PWM 控制（绕过位置环，原始 PWM 信号） | `cargo run --example raw_effort -- -p /dev/ttyUSB0 -i 1 --effort 2048` |
-| **six_dof_move** | 6自由度机械臂平滑移动到目标位置            | `cargo run --example six_dof_move -- -p /dev/ttyUSB0`                  |
+**命令：**
+```bash
+cargo run --example scan -- [参数]
+```
 
-### 遥操作与高级控制
+**参数：**
 
-| 示例                   | 功能                                     | 命令                                                                        |
-| ---------------------- | ---------------------------------------- | --------------------------------------------------------------------------- |
-| **teleop**             | 主从遥操作（两个 SO-100 机械臂镜像控制） | `cargo run --example teleop -- -l /dev/ttyUSB0 -f /dev/ttyUSB1`             |
-| **teleop_simple_safe** | 带安全停车功能的简单遥操作               | `cargo run --example teleop_simple_safe -- -l /dev/ttyUSB0 -f /dev/ttyUSB1` |
-| **keyboard_control**   | 键盘平滑控制（方向键控制多个舵机）       | `cargo run --example keyboard_control -- -p /dev/ttyUSB0`                   |
-| **omni_car**           | 全向轮小车控制（基于舵机）               | `cargo run --example omni_car -- -p /dev/ttyUSB0`                           |
+| 参数 | 短参数 | 参数类型 | 默认值 | 必填 | 说明 |
+|------|--------|----------|--------|------|------|
+| `--port` | `-p` | String | `/dev/ttyUSB0` | 否 | 串口路径，Linux/macOS 为 `/dev/ttyUSB0`，Windows 为 `COM3` |
+| `--baud` | `-b` | u32 | `1000000` | 否 | 波特率，默认 1Mbps |
+| `--max-id` | - | u8 | `10` | 否 | 最大扫描 ID 范围 (1-253) |
 
-### 使用示例
+**示例：**
+```bash
+cargo run --example scan -- -p /dev/ttyUSB0                    # 默认扫描 ID 1-10
+cargo run --example scan -- -p /dev/ttyUSB0 --max-id 20         # 扫描 ID 1-20
+cargo run --example scan -- -p /dev/ttyUSB0 -b 115200           # 使用 115200 波特率
+```
+
+---
+
+### set_id - 设置舵机 ID
+
+设置舵机 ID（使用广播 ID 0xFE，适用于新舵机配置）。**注意：设置后需要断电重启舵机才能生效。**
+
+**命令：**
+```bash
+cargo run --example set_id -- [参数]
+```
+
+**参数：**
+
+| 参数 | 短参数 | 参数类型 | 默认值 | 必填 | 说明 |
+|------|--------|----------|--------|------|------|
+| `--port` | `-p` | String | `/dev/ttyUSB0` | 否 | 串口路径 |
+| `--baud` | `-b` | u32 | `1000000` | 否 | 波特率 |
+| `--new-id` | `-n` | u8 | - | **是** | 要设置的新 ID (1-253)，**0xFE (254) 为广播 ID 不可用** |
+| `--baudrate-code` | - | Option\<u8\> | - | 否 | 同时设置波特率：0=1M, 1=500K, 2=250K, 3=128K, 4=115200, 5=76800, 6=57600, 7=38400 |
+
+**示例：**
+```bash
+cargo run --example set_id -- -p /dev/ttyUSB0 -n 5              # 设置为 ID 5
+cargo run --example set_id -- -p /dev/ttyUSB0 -n 1 --baudrate-code 4  # 设置 ID 1 并改为 115200 波特率
+```
+
+**使用流程：**
+1. 只连接一个舵机（其他断电）
+2. 运行命令设置新 ID
+3. **断电重启舵机**（必须！）
+4. 连接下一个舵机，重复步骤 2-3
+5. 全部设置完成后用 `scan` 验证
+
+---
+
+### read_info - 读取舵机信息
+
+读取舵机详细信息，包括 Firmware/Software 版本、ID、波特率、型号、当前位置等。
+
+**命令：**
+```bash
+cargo run --example read_info -- [参数]
+```
+
+**参数：**
+
+| 参数 | 短参数 | 参数类型 | 默认值 | 必填 | 说明 |
+|------|--------|----------|--------|------|------|
+| `--port` | `-p` | String | `/dev/ttyUSB0` | 否 | 串口路径 |
+| `--baud` | `-b` | u32 | `1000000` | 否 | 波特率 |
+| `--id` | `-i` | u8 | `1` | 否 | 要读取的舵机 ID |
+
+**示例：**
+```bash
+cargo run --example read_info -- -p /dev/ttyUSB0 -i 6          # 读取 ID 6 的信息
+cargo run --example read_info -- -p /dev/ttyUSB0                # 默认读取 ID 1
+```
+
+**输出信息：**
+- Firmware Version（固件版本）
+- Software Version（软件版本）
+- ID（当前 ID）
+- Baud Rate（波特率）
+- Model（型号代码）
+- Current Position（当前角度，弧度和度）
+- Raw Position（原始 tick 值，0-4095）
+
+---
+
+### read_raw - 读取原始位置
+
+读取舵机原始位置数值（0-4095 tick）。
+
+**命令：**
+```bash
+cargo run --example read_raw -- [参数]
+```
+
+**参数：**
+
+| 参数 | 短参数 | 参数类型 | 默认值 | 必填 | 说明 |
+|------|--------|----------|--------|------|------|
+| `--port` | `-p` | String | `/dev/ttyUSB0` | 否 | 串口路径 |
+| `--baud` | `-b` | u32 | `1000000` | 否 | 波特率 |
+| `--ids` | - | Vec\<u8\> | `1,2,3,4,5,6` | 否 | 要读取的舵机 ID 列表，逗号分隔 |
+
+**示例：**
+```bash
+cargo run --example read_raw -- -p /dev/ttyUSB0 --ids 1,2,3    # 读取 ID 1,2,3
+cargo run --example read_raw -- -p /dev/ttyUSB0                 # 默认读取 1-6
+```
+
+---
+
+### set_mid - 设置中位（零点标定）
+
+将当前物理位置设置为舵机中位（零点标定），用于校准舵机的机械零位。
+
+**命令：**
+```bash
+cargo run --example set_mid -- [参数]
+```
+
+**参数：**
+
+| 参数 | 短参数 | 参数类型 | 默认值 | 必填 | 说明 |
+|------|--------|----------|--------|------|------|
+| `--port` | `-p` | String | `/dev/ttyUSB0` | 否 | 串口路径 |
+| `--baud` | `-b` | u32 | `1000000` | 否 | 波特率 |
+| `--ids` | - | Vec\<u8\> | `1,2,3,4,5,6` | 否 | 要校准的舵机 ID 列表，逗号分隔 |
+| `--mock` | - | bool | - | 否 | 使用 Mock 后端进行测试 |
+
+**示例：**
+```bash
+cargo run --example set_mid -- -p /dev/ttyUSB0 --ids 1,2       # 校准 ID 1 和 2
+cargo run --example set_mid -- -p /dev/ttyUSB0                   # 默认校准 1-6
+cargo run --example set_mid --features mock -- --mock            # 使用模拟测试
+```
+
+---
+
+### monitor - 监控位置
+
+实时监控舵机位置，连续读取并显示。
+
+**命令：**
+```bash
+cargo run --example monitor -- [参数]
+```
+
+**参数：**
+
+| 参数 | 短参数 | 参数类型 | 默认值 | 必填 | 说明 |
+|------|--------|----------|--------|------|------|
+| `--port` | `-p` | String | `/dev/ttyUSB0` | 否 | 串口路径 |
+| `--baud` | `-b` | u32 | `1000000` | 否 | 波特率 |
+| `--ids` | - | Vec\<u8\> | - | **是** | 要监控的舵机 ID 列表，逗号分隔 |
+
+**示例：**
+```bash
+cargo run --example monitor -- -p /dev/ttyUSB0 --ids 1,2,3     # 监控 ID 1,2,3
+cargo run --example monitor -- -p /dev/ttyUSB0 -i 1             # 监控单个 ID 1
+```
+
+---
+
+### simple_move - 简单移动
+
+简单位置控制，将舵机移动到指定角度。
+
+**命令：**
+```bash
+cargo run --example simple_move -- [参数]
+```
+
+**参数：**
+
+| 参数 | 短参数 | 参数类型 | 默认值 | 必填 | 说明 |
+|------|--------|----------|--------|------|------|
+| `--port` | `-p` | String | `/dev/ttyUSB0` | 否 | 串口路径 |
+| `--baud` | `-b` | u32 | `1000000` | 否 | 波特率 |
+| `--id` | `-i` | u8 | - | **是** | 要控制的舵机 ID |
+| `--degrees` | `-d` | f32 | - | **是** | 目标角度（度），范围 0-360 |
+| `--wait` | `-w` | f32 | `2.0` | 否 | 移动后等待观察时间（秒） |
+
+**示例：**
+```bash
+cargo run --example simple_move -- -p /dev/ttyUSB0 -i 1 -d 90      # 移动到 90 度
+cargo run --example simple_move -- -p /dev/ttyUSB0 -i 2 -d 180 -w 5 # 移动到 180 度，等待 5 秒
+```
+
+---
+
+### raw_effort - PWM 控制
+
+直接 PWM 控制，绕过位置环，使用原始 PWM 信号驱动舵机。
+
+**命令：**
+```bash
+cargo run --example raw_effort -- [参数]
+```
+
+**参数：**
+
+| 参数 | 短参数 | 参数类型 | 默认值 | 必填 | 说明 |
+|------|--------|----------|--------|------|------|
+| `--port` | `-p` | String | `/dev/ttyUSB0` | 否 | 串口路径 |
+| `--baud` | `-b` | u32 | `1000000` | 否 | 波特率 |
+| `--ids` | - | Vec\<u8\> | `1,2,3,4,5,6` | 否 | 要控制的舵机 ID 列表，逗号分隔 |
+| `--effort` | `-e` | i16 | `200` | 否 | PWM 值，范围约 -4096 到 4096 |
+| `--duration` | `-d` | f32 | `2.0` | 否 | 运行时长（秒） |
+| `--mock` | - | bool | - | 否 | 使用 Mock 后端进行测试 |
+
+**示例：**
+```bash
+cargo run --example raw_effort -- -p /dev/ttyUSB0 --ids 1 -e 500 -d 3
+cargo run --example raw_effort -- -p /dev/ttyUSB0 -e 200                   # 默认参数
+```
+
+---
+
+### six_dof_move - 6自由度机械臂移动
+
+6自由度机械臂平滑移动到目标位置。
+
+**命令：**
+```bash
+cargo run --example six_dof_move -- [参数]
+```
+
+**参数：**
+
+| 参数 | 短参数 | 参数类型 | 默认值 | 必填 | 说明 |
+|------|--------|----------|--------|------|------|
+| `--port` | `-p` | String | `/dev/ttyUSB0` | 否 | 串口路径 |
+| `--baud` | `-b` | u32 | `1000000` | 否 | 波特率 |
+| `--duration` | - | f32 | `3.0` | 否 | 运动耗时（秒），时间越长速度越慢 |
+
+**示例：**
+```bash
+cargo run --example six_dof_move -- -p /dev/ttyUSB0               # 默认 3 秒运动
+cargo run --example six_dof_move -- -p /dev/ttyUSB0 --duration 5  # 5 秒，更慢更平滑
+```
+
+---
+
+### teleop - 主从遥操作
+
+主从遥操作，控制两个 SO-100 机械臂镜像运动。
+
+**命令：**
+```bash
+cargo run --example teleop -- [参数]
+```
+
+**参数：**
+
+| 参数 | 短参数 | 参数类型 | 默认值 | 必填 | 说明 |
+|------|--------|----------|--------|------|------|
+| `--leader-port` | - | String | `/dev/ttyUSB0` | 否 | 主手（Leader）串口路径，人操作的舵机 |
+| `--follower-port` | - | String | `/dev/ttyUSB1` | 否 | 从手（Follower）串口路径，跟随运动的舵机 |
+| `--baud` | - | u32 | `1000000` | 否 | 波特率 |
+| `--ids` | - | Vec\<u8\> | `1,2,3,4,5,6` | 否 | 机械臂关节 ID 列表，逗号分隔 |
+
+**示例：**
+```bash
+cargo run --example teleop -- --leader-port /dev/ttyUSB0 --follower-port /dev/ttyUSB1
+cargo run --example teleop -- -l /dev/ttyUSB0 -f /dev/ttyUSB1 --ids 1,2,3,4
+```
+
+---
+
+### teleop_simple_safe - 安全遥操作
+
+带安全停车功能的简单遥操作，当停止操作时舵机会自动归位。
+
+**命令：**
+```bash
+cargo run --example teleop_simple_safe -- [参数]
+```
+
+**参数：**
+
+| 参数 | 短参数 | 参数类型 | 默认值 | 必填 | 说明 |
+|------|--------|----------|--------|------|------|
+| `--leader-port` | - | String | `/dev/ttyUSB0` | 否 | 主手（Leader）串口路径 |
+| `--follower-port` | - | String | `/dev/ttyUSB1` | 否 | 从手（Follower）串口路径 |
+| `--ids` | - | Vec\<u8\> | `1,2,3,4,5,6` | 否 | 关节 ID 列表，逗号分隔 |
+| `--park-duration` | - | f32 | `5.0` | 否 | 归位运动总耗时（秒），时间越长越安全 |
+
+**示例：**
+```bash
+cargo run --example teleop_simple_safe -- -l /dev/ttyUSB0 -f /dev/ttyUSB1
+cargo run --example teleop_simple_safe -- --park-duration 10   # 10 秒归位，更慢更安全
+```
+
+---
+
+### keyboard_control - 键盘控制
+
+使用键盘方向键平滑控制多个舵机。
+
+**命令：**
+```bash
+cargo run --example keyboard_control -- [参数]
+```
+
+**参数：**
+
+| 参数 | 短参数 | 参数类型 | 默认值 | 必填 | 说明 |
+|------|--------|----------|--------|------|------|
+| `--port` | `-p` | String | `/dev/ttyUSB0` | 否 | 串口路径 |
+| `--speed` | - | f32 | `800.0` | 否 | 移动速度 (0-1500) |
+| `--turn-speed` | - | f32 | `500.0` | 否 | 旋转速度 (0-1500) |
+
+**示例：**
+```bash
+cargo run --example keyboard_control -- -p /dev/ttyUSB0
+cargo run --example keyboard_control -- -p /dev/ttyUSB0 --speed 1000
+```
+
+---
+
+### omni_car - 全向轮小车
+
+控制基于舵机的全向轮小车。
+
+**命令：**
+```bash
+cargo run --example omni_car -- [参数]
+```
+
+**参数：**
+
+| 参数 | 短参数 | 参数类型 | 默认值 | 必填 | 说明 |
+|------|--------|----------|--------|------|------|
+| `--port` | `-p` | String | `/dev/ttyUSB0` | 否 | 串口路径 |
+
+**示例：**
+```bash
+cargo run --example omni_car -- -p /dev/ttyUSB0
+```
+
+---
+
+### 使用示例流程
 
 ```bash
 # 1. 扫描发现舵机
@@ -183,18 +506,21 @@ cargo run --example set_id -- -p /dev/ttyUSB0 -n 3   # 设置为 ID 3
 cargo run --example scan -- -p /dev/ttyUSB0
 
 # 5. 简单移动测试
-cargo run --example simple_move -- -p /dev/ttyUSB0 -i 1 --degrees 90
+cargo run --example simple_move -- -p /dev/ttyUSB0 -i 1 -d 90
 
 # 6. 监控位置
-cargo run --example monitor -- -p /dev/ttyUSB0
+cargo run --example monitor -- -p /dev/ttyUSB0 --ids 1,2,3
 ```
+
+---
 
 ### 模拟测试
 
-所有示例都支持 `--features mock` 进行无硬件测试：
+所有示例都支持 `--features mock` 进行无硬件测试（需要硬件的示例可加 `--mock` 参数）：
 
 ```bash
 cargo run --example monitor --features mock -- --mock
+cargo run --example set_mid --features mock -- --mock
 ```
 
 ## ⚙️ 硬件连接指南
