@@ -62,12 +62,9 @@ async fn run(mut bus: Box<dyn MotorBus>, cli: Cli) -> Result<()> {
             info!("Starting scan up to ID {}...", max_id);
             let mut found = Vec::new();
             for id in 1..=*max_id {
-                match bus.read_position(id).await {
-                    Ok(pos) => {
-                        info!("Found ID {}: {:.2}° ({:.4} rad)", id, pos.to_degrees(), pos);
-                        found.push(id);
-                    }
-                    Err(_) => {}
+                if let Ok(pos) = bus.read_position(id).await {
+                    info!("Found ID {}: {:.2}° ({:.4} rad)", id, pos.to_degrees(), pos);
+                    found.push(id);
                 }
                 tokio::time::sleep(Duration::from_millis(5)).await;
             }

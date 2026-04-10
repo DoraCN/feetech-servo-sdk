@@ -72,6 +72,50 @@ where
         Ok(())
     }
 
+    /// 广播写入（无响应，用于设置 ID）
+    pub async fn broadcast_write(&mut self, address: u8, value: u8) -> Result<()> {
+        const BROADCAST_ID: u8 = 0xFE;
+        let packet = v0::pack_instruction(BROADCAST_ID, Instruction::Write, &[address, value]);
+        self.stream.write_all(&packet).await?;
+        trace!("Broadcast TX -> {:02X?}", packet);
+        Ok(())
+    }
+
+    /// 广播写入 16 位数据
+    pub async fn broadcast_write_word(&mut self, address: u8, value: u16) -> Result<()> {
+        const BROADCAST_ID: u8 = 0xFE;
+        let bytes = value.to_le_bytes();
+        let packet = v0::pack_instruction(BROADCAST_ID, Instruction::Write, &[address, bytes[0], bytes[1]]);
+        self.stream.write_all(&packet).await?;
+        trace!("Broadcast TX -> {:02X?}", packet);
+        Ok(())
+    }
+
+    /// 读取单个字节寄存器
+    pub async fn read_byte(&mut self, id: u8, address: u8) -> Result<u8> {
+        let packet = v0::pack_instruction(id, Instruction::Read, &[address, 1]);
+        let params = self.transfer(id, &packet, 7).await?;
+        trace!("read_byte response params: {:02X?}", params);
+        if params.is_empty() {
+            return Err(ServoError::Protocol("Empty response".into()));
+        }
+        if params.len() == 1 {
+            return Ok(params[0]);
+        }
+        Ok(params[1])
+    }
+
+    /// 读取两个字节寄存器
+    pub async fn read_word(&mut self, id: u8, address: u8) -> Result<u16> {
+        let packet = v0::pack_instruction(id, Instruction::Read, &[address, 2]);
+        let params = self.transfer(id, &packet, 8).await?;
+        trace!("read_word response params: {:02X?}", params);
+        if params.len() < 2 {
+            return Err(ServoError::Protocol("Response too short".into()));
+        }
+        Ok(u16::from_le_bytes([params[0], params[1]]))
+    }
+
     // --- 私有协议辅助 ---
 
     async fn transfer(&mut self, id: u8, packet: &[u8], response_len: usize) -> Result<Vec<u8>> {
