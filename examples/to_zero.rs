@@ -4,10 +4,14 @@ use std::time::Duration;
 use tracing::{Level, info};
 use tracing_subscriber::FmtSubscriber;
 
-const SAFE_PARK_POSE: [f32; 6] = [90.0, 45.0, -45.0, 0.0, 0.0, 0.0];
+const SAFE_PARK_POSE: [f32; 6] = [0.0, -107.7, 91.6, 64.0, -0.3, 0.0];
 
 #[derive(Parser, Debug)]
-#[command(author, version, about = "Move Arm to Zero and Return to Park Position")]
+#[command(
+    author,
+    version,
+    about = "Move Arm to Zero and Return to Park Position"
+)]
 struct Args {
     /// 串口路径
     #[arg(short, long, default_value = "/dev/ttyUSB0")]
@@ -65,7 +69,7 @@ async fn main() -> anyhow::Result<()> {
 
     // 5. 回到安全停机位置
     info!("正在回到安全停机位置: {:?}", SAFE_PARK_POSE);
-    move_smoothly(&mut bus, &arm_ids, &SAFE_PARK_POSE.to_vec(), args.duration).await?;
+    move_smoothly(&mut bus, &arm_ids, SAFE_PARK_POSE.as_ref(), args.duration).await?;
 
     // 6. 等待稳定后卸力并退出
     info!("🔓 正在卸力并退出...");
