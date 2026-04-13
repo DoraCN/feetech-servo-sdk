@@ -363,13 +363,13 @@ cargo run --example raw_effort -- -p /dev/ttyUSB0 -e 200                   # 默
 
 ---
 
-### six_dof_move - 6自由度机械臂移动
+### to_zero - 走零位并自动复位
 
-6自由度机械臂平滑移动到目标位置。
+将机械臂移动到零位，等待后自动回到安全停机位置，然后卸力退出。安全停机位置为 `[90°, 45°, -45°, 0°, 0°, 0°]`。
 
 **命令：**
 ```bash
-cargo run --example six_dof_move -- [参数]
+cargo run --example to_zero -- [参数]
 ```
 
 **参数：**
@@ -378,13 +378,21 @@ cargo run --example six_dof_move -- [参数]
 |------|--------|----------|--------|------|------|
 | `--port` | `-p` | String | `/dev/ttyUSB0` | 否 | 串口路径 |
 | `--baud` | `-b` | u32 | `1000000` | 否 | 波特率 |
-| `--duration` | - | f32 | `3.0` | 否 | 运动耗时（秒），时间越长速度越慢 |
+| `--wait` | `-w` | f32 | `5.0` | 否 | 在零位等待时间（秒） |
+| `--duration` | `-d` | f32 | `3.0` | 否 | 运动耗时（秒），时间越长速度越慢 |
 
 **示例：**
 ```bash
-cargo run --example six_dof_move -- -p /dev/ttyUSB0               # 默认 3 秒运动
-cargo run --example six_dof_move -- -p /dev/ttyUSB0 --duration 5  # 5 秒，更慢更平滑
+cargo run --example to_zero -- -p /dev/ttyUSB0                    # 默认：零位等待 5 秒
+cargo run --example to_zero -- -p /dev/ttyUSB0 -w 10                # 零位等待 10 秒
+cargo run --example to_zero -- -p /dev/ttyUSB0 -d 5                  # 运动耗时 5 秒，更慢
 ```
+
+**流程：**
+1. 移动到零位 `[0°, 0°, 0°, 0°, 0°, 0°]`
+2. 等待指定时间
+3. 移动到安全停机位置 `[90°, 45°, -45°, 0°, 0°, 0°]`
+4. 卸力并退出程序
 
 ---
 
