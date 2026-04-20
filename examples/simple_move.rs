@@ -1,5 +1,5 @@
 use clap::Parser;
-use feetech_servo_sdk::{ControlOp, FeetechBus, MotorBus}; // 注意引入 ControlOp
+use feetech_servo_sdk::{ControlOp, FeetechBus, MotorBus};
 use std::time::Duration;
 use tracing::{Level, info};
 use tracing_subscriber::FmtSubscriber;
@@ -32,7 +32,7 @@ struct Args {
 async fn main() -> anyhow::Result<()> {
     // 初始化日志
     let subscriber = FmtSubscriber::builder()
-        .with_max_level(Level::INFO)
+        .with_max_level(Level::DEBUG)
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
@@ -44,8 +44,8 @@ async fn main() -> anyhow::Result<()> {
     info!("正在连接 {}...", args.port);
     let mut bus = FeetechBus::new(&args.port, args.baud)?;
 
-    // 1. 上电 (Enable Torque)
-    // 这一步是必须的，否则电机处于“手掰模式”，即使写入位置也不会动
+// 1. 上电 (Enable Torque)
+    // 这一步是必须的，否则电机处于"手掰模式"，即使写入位置也不会动
     info!("正在为 ID {} 上电 (Enable Torque)...", args.id);
     bus.enable_torque(&[args.id]).await?;
 
@@ -54,10 +54,13 @@ async fn main() -> anyhow::Result<()> {
     info!("当前位置: {:.2}°", start_pos.to_degrees());
 
     // 3. 发送移动指令
-    info!("发送目标: {:.2}° ({:.4} rad)", args.degrees, target_rad);
-    // 使用 ControlOp::Position 包装目标值
-    bus.write_goal(args.id, ControlOp::Position(target_rad))
+    let tick_expected = (target_rad / (2.0 * std::f32::consts::PI) + 0.5) * 4096.0;
+    info!("发送目标: {:.2}° ({:.4} rad) -> tick: {}", args.degrees, target_rad, tick_expected as i16);
+
+    // 使用 sync_write_goals (已验证可以工作)
+    bus.sync_write_goals(&[(args.id, ControlOp::Position(target_rad))])
         .await?;
+    info!("sync_write_goals 已发送");
 
     // 4. 等待并观察运动过程
     let check_interval = Duration::from_millis(100);
@@ -74,7 +77,8 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let final_pos = bus.read_position(args.id).await?;
-    info!("最终位置: {:.2}°", final_pos.to_degrees());
+    let final_tick = (final_pos.to_degrees() / 360.0 + 0.5) * 4096.0;
+    info!("最终位置: {:.2}° -> tick: {}", final_pos.to_degrees(), final_tick as i16);
     info!("完成。注意：电机仍处于上电锁力状态。");
 
     Ok(())

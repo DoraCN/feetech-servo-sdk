@@ -1,10 +1,16 @@
 use clap::Parser;
 use feetech_servo_sdk::{ControlOp, FeetechBus, MotorBus};
 use std::time::Duration;
-use tracing::{Level, info};
+use tracing::{error, Level, info};
 use tracing_subscriber::FmtSubscriber;
 
-const SAFE_PARK_POSE: [f32; 6] = [0.0, -107.7, 91.6, 64.0, -0.3, 0.0];
+fn parse_f32(s: &str) -> Result<f32, String> {
+    s.parse::<f32>()
+        .map_err(|_| format!("invalid float: {}", s))
+}
+
+const DEFAULT_IDS: &[u8] = &[1, 2, 3, 4, 5, 6];
+const DEFAULT_SAFE_POSE: [f32; 6] = [0.0, -107.7, 91.6, 64.0, -0.3, 0.0];
 
 #[derive(Parser, Debug)]
 #[command(
@@ -20,6 +26,16 @@ struct Args {
     /// 波特率
     #[arg(short, long, default_value_t = 1000000)]
     baud: u32,
+
+    /// 舵机 IDs (逗号分隔，如 1,2,3,4,5,6)
+    #[arg(short = 'i', long, value_delimiter = ',', value_parser = clap::value_parser!(u8))]
+    ids: Option<Vec<u8>>,
+
+    /// 安全停机位置 (逗号分隔的度数，如 0.0,-107.7,91.6,64.0,-0.3,0.0)
+    /// 当 IDs 数量不为 6 时此参数必填
+    /// 注意：负数请使用等号传递，如 --safe-stop=-10.0,20.0
+    #[arg(long, value_delimiter = ',', value_parser = parse_f32)]
+    safe_stop: Option<Vec<f32>>,
 
     /// 在零位等待时间 (秒)
     #[arg(short, long, default_value_t = 5.0)]
@@ -40,8 +56,27 @@ async fn main() -> anyhow::Result<()> {
 
     let args = Args::parse();
 
-    // 假设机械臂的 ID 是 1 到 6
-    let arm_ids = vec![1, 2, 3, 4, 5, 6];
+    let arm_ids = match args.ids {
+        Some(ids) if !ids.is_empty() => ids,
+        _ => DEFAULT_IDS.to_vec(),
+    };
+    let joint_count = arm_ids.len();
+
+    let safe_pose = match args.safe_stop {
+        Some(pose) if !pose.is_empty() => pose,
+        _ => {
+            if joint_count != DEFAULT_SAFE_POSE.len() {
+                error!(
+                    "IDs 数量 ({}) 不是 6，必须通过 --safe-stop 指定安全停机位置",
+                    joint_count
+                );
+                return Ok(());
+            }
+            DEFAULT_SAFE_POSE.to_vec()
+        }
+    };
+
+    let zero_pose = vec![0.0; joint_count];
 
     info!(
         "正在连接机械臂 (Port: {}, Baud: {})...",
@@ -54,22 +89,19 @@ async fn main() -> anyhow::Result<()> {
     info!("正在上电并锁定关节...");
     bus.enable_torque(&arm_ids).await?;
 
-    // 3. 定义目标姿态 (单位：度)
-    // 零位姿态
-    let zero_pose_deg = vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
-
-    info!("准备移动到零位: {:?}", zero_pose_deg);
+    // 3. 定义目标姿态 (单位：度) - 零位姿态
+    info!("准备移动到零位: {:?} 度", zero_pose);
     info!("计划耗时: {:.1} 秒", args.duration);
 
     // 4. 执行平滑移动到零位
-    move_smoothly(&mut bus, &arm_ids, &zero_pose_deg, args.duration).await?;
+    move_smoothly(&mut bus, &arm_ids, &zero_pose, args.duration).await?;
 
     info!("✅ 已到达零位，等待 {:.1} 秒...", args.wait);
     tokio::time::sleep(Duration::from_secs_f32(args.wait)).await;
 
     // 5. 回到安全停机位置
-    info!("正在回到安全停机位置: {:?}", SAFE_PARK_POSE);
-    move_smoothly(&mut bus, &arm_ids, SAFE_PARK_POSE.as_ref(), args.duration).await?;
+    info!("正在回到安全停机位置: {:?} 度", safe_pose);
+    move_smoothly(&mut bus, &arm_ids, &safe_pose, args.duration).await?;
 
     // 6. 等待稳定后卸力并退出
     info!("🔓 正在卸力并退出...");

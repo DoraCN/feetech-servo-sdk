@@ -1,7 +1,7 @@
 use clap::Parser;
 use feetech_servo_sdk::FeetechBus;
 use feetech_servo_sdk::FeetechController;
-use tracing::{info, error, Level};
+use tracing::{Level, error, info};
 use tracing_subscriber::FmtSubscriber;
 
 const ADDR_ID: u8 = 0x05;
@@ -18,6 +18,10 @@ struct Args {
     /// Baud rate
     #[arg(short, long, default_value_t = 1000000)]
     baud: u32,
+
+    /// Original ID of the servo (1-253)
+    #[arg(short = 'o', long, default_value_t = 0xFE)]
+    origin_id: u8,
 
     /// New ID to set (1-253)
     #[arg(short, long)]
@@ -37,36 +41,73 @@ async fn main() -> anyhow::Result<()> {
 
     let args = Args::parse();
 
-    if args.new_id == 0xFE {
+    if args.new_id == 0xFE || args.origin_id == 0xFE {
         error!("ID 0xFE is reserved for broadcast");
+        return Ok(());
+    }
+
+    if args.origin_id == args.new_id {
+        info!(
+            "Origin ID and new ID are the same ({}) - nothing to do",
+            args.origin_id
+        );
         return Ok(());
     }
 
     info!("Connecting to {}...", args.port);
     let mut bus = FeetechBus::new(&args.port, args.baud)?;
 
-    info!("Using broadcast ID to set ID for connected servo...");
-    info!("Setting servo ID to {}...", args.new_id);
+    if args.origin_id == 0xFE {
+        info!("Using broadcast ID to set ID for connected servo...");
+    } else {
+        info!("Targeting servo with origin ID {}...", args.origin_id);
+    }
 
-    info!("Step 1: Unlock EEPROM (write 0 to address {:#04x})", ADDR_LOCK);
-    FeetechController::broadcast_write(&mut bus, ADDR_LOCK, 0).await?;
+    if args.origin_id == 0xFE {
+        info!("Using broadcast to set ID for connected servo...");
+    } else {
+        info!(
+            "Directly targeting servo {} to change ID...",
+            args.origin_id
+        );
+    }
 
-    info!("Step 2: Write new ID {} to address {:#04x}", args.new_id, ADDR_ID);
-    FeetechController::broadcast_write(&mut bus, ADDR_ID, args.new_id).await?;
+    if args.origin_id == 0xFE {
+        info!("Step 1: Unlock EEPROM...");
+        FeetechController::broadcast_write(&mut bus, ADDR_LOCK, 0).await?;
 
-    info!("Step 3: Lock EEPROM to protect settings");
-    FeetechController::broadcast_write(&mut bus, ADDR_LOCK, 1).await?;
+        info!("Step 2: Write new ID {}...", args.new_id);
+        FeetechController::broadcast_write(&mut bus, ADDR_ID, args.new_id).await?;
+
+        info!("Step 3: Lock EEPROM...");
+        FeetechController::broadcast_write(&mut bus, ADDR_LOCK, 1).await?;
+    } else {
+        info!("Step 1: Unlock EEPROM...");
+        FeetechController::write_byte(&mut bus, args.origin_id, ADDR_LOCK, 0).await?;
+
+        info!("Step 2: Write new ID {}...", args.new_id);
+        FeetechController::write_byte(&mut bus, args.origin_id, ADDR_ID, args.new_id).await?;
+
+        info!("Step 3: Lock EEPROM...");
+        FeetechController::write_byte(&mut bus, args.origin_id, ADDR_LOCK, 1).await?;
+    }
 
     if let Some(br_code) = args.baudrate_code {
-        info!("Step 4: Setting baud rate code to {} at address {:#04x}", br_code, ADDR_BAUDRATE);
-        FeetechController::broadcast_write(&mut bus, ADDR_LOCK, 0).await?;
-        FeetechController::broadcast_write(&mut bus, ADDR_BAUDRATE, br_code).await?;
-        FeetechController::broadcast_write(&mut bus, ADDR_LOCK, 1).await?;
+        info!(
+            "Step 4: Setting baud rate code to {} at address {:#04x}",
+            br_code, ADDR_BAUDRATE
+        );
+        FeetechController::write_byte(&mut bus, args.new_id, ADDR_LOCK, 0).await?;
+        FeetechController::write_byte(&mut bus, args.new_id, ADDR_BAUDRATE, br_code).await?;
+        FeetechController::write_byte(&mut bus, args.new_id, ADDR_LOCK, 1).await?;
     }
 
     info!("ID set successfully to {}", args.new_id);
     info!("IMPORTANT: Power cycle the servo for changes to take effect!");
-    info!("Then verify with: cargo run --example scan -- --port {}", args.port);
+    info!(
+        "Then verify with: cargo run --example scan -- --port {}",
+        args.port
+    );
 
     Ok(())
 }

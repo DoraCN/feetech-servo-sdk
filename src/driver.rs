@@ -68,7 +68,7 @@ where
     pub async fn write_word(&mut self, id: u8, address: u8, value: u16) -> Result<()> {
         let bytes = value.to_le_bytes();
         let packet = v0::pack_instruction(id, Instruction::Write, &[address, bytes[0], bytes[1]]);
-        self.transfer(id, &packet, 6).await?;
+        self.stream.write_all(&packet).await?;
         Ok(())
     }
 
@@ -174,11 +174,11 @@ impl<S> MotorBus for FeetechController<S>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + Sync,
 {
-    #[instrument(skip(self))]
+#[instrument(skip(self))]
     async fn enable_torque(&mut self, ids: &[u8]) -> Result<()> {
         for &id in ids {
             let packet = v0::pack_instruction(id, Instruction::Write, &[v0::ADDR_TORQUE_ENABLE, 1]);
-            self.transfer(id, &packet, 6).await?;
+            self.stream.write_all(&packet).await?;
         }
         Ok(())
     }
@@ -187,7 +187,7 @@ where
     async fn disable_torque(&mut self, ids: &[u8]) -> Result<()> {
         for &id in ids {
             let packet = v0::pack_instruction(id, Instruction::Write, &[v0::ADDR_TORQUE_ENABLE, 0]);
-            let _ = self.transfer(id, &packet, 6).await;
+            self.stream.write_all(&packet).await?;
         }
         Ok(())
     }
@@ -208,27 +208,36 @@ where
     #[instrument(skip(self))]
     async fn set_middle_position(&mut self, id: u8) -> Result<()> {
         info!("Setting ID {} current position as middle position...", id);
-        let packet = v0::pack_instruction(id, Instruction::Write, &[v0::ADDR_TORQUE_ENABLE, 128]);
 
-        let mut last_error = None;
-        for attempt in 1..=3 {
-            match self
-                .transfer_with_timeout(id, &packet, 6, Duration::from_millis(1000))
-                .await
-            {
-                Ok(_) => {
-                    info!("ID {} set to middle position successfully on attempt {}.", id, attempt);
-                    return Ok(());
-                }
-                Err(e) => {
-                    last_error = Some(e);
-                    if attempt < 3 {
-                        tokio::time::sleep(Duration::from_millis(50)).await;
-                    }
-                }
-            }
-        }
-        Err(last_error.unwrap())
+        // 先解锁 EEPROM
+        let unlock_packet = v0::pack_instruction(id, Instruction::Write, &[37, 0]); // ADDR_LOCK = 37
+        self.stream.write_all(&unlock_packet).await?;
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        // 设置地址9 (Min Angle Limit) 为 0
+        let min_limit_packet = v0::pack_instruction(id, Instruction::Write, &[9, 0, 0]);
+        self.stream.write_all(&min_limit_packet).await?;
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        info!("Set Min Angle Limit (Addr 9) to 0");
+
+        // 设置地址11 (Max Angle Limit) 为 0
+        let max_limit_packet = v0::pack_instruction(id, Instruction::Write, &[11, 0, 0]);
+        self.stream.write_all(&max_limit_packet).await?;
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        info!("Set Max Angle Limit (Addr 11) to 0");
+
+        // 设置中间位置
+        let packet = v0::pack_instruction(id, Instruction::Write, &[40, 128]); // ADDR_TORQUE_ENABLE = 40
+        self.stream.write_all(&packet).await?;
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        info!("ID {} set to middle position", id);
+
+        // 锁定 EEPROM
+        let lock_packet = v0::pack_instruction(id, Instruction::Write, &[37, 1]);
+        self.stream.write_all(&lock_packet).await?;
+        info!("Locked EEPROM");
+
+        Ok(())
     }
 
     #[instrument(skip(self))]
@@ -245,27 +254,42 @@ where
             ControlOp::Position(rad) => {
                 let tick = Self::rad_to_tick(rad);
                 let bytes = tick.to_le_bytes();
-                let packet = v0::pack_instruction(
+                // 先设置速度（默认最大速度）
+                let speed_packet = v0::pack_instruction(
+                    id,
+                    Instruction::Write,
+                    &[v0::ADDR_GOAL_SPEED, 0xFF, 0x03],
+                );
+                self.stream.write_all(&speed_packet).await?;
+                // 再设置位置
+                let pos_packet = v0::pack_instruction(
                     id,
                     Instruction::Write,
                     &[v0::ADDR_GOAL_POSITION, bytes[0], bytes[1]],
                 );
-                self.transfer(id, &packet, 6).await?;
+                self.stream.write_all(&pos_packet).await?;
+                Ok(())
             }
             ControlOp::RawEffort(raw_tick) => {
                 let rad = Self::tick_to_rad(raw_tick);
                 let tick = Self::rad_to_tick(rad);
                 let bytes = tick.to_le_bytes();
-                let packet = v0::pack_instruction(
+                let speed_packet = v0::pack_instruction(
+                    id,
+                    Instruction::Write,
+                    &[v0::ADDR_GOAL_SPEED, 0xFF, 0x03],
+                );
+                self.stream.write_all(&speed_packet).await?;
+                let pos_packet = v0::pack_instruction(
                     id,
                     Instruction::Write,
                     &[v0::ADDR_GOAL_POSITION, bytes[0], bytes[1]],
                 );
-                self.transfer(id, &packet, 6).await?;
+                self.stream.write_all(&pos_packet).await?;
+                Ok(())
             }
             _ => return Err(ServoError::Protocol("Unsupported control mode".into())),
         }
-        Ok(())
     }
 
     #[instrument(skip(self))]
