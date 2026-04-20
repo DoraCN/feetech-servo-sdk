@@ -179,13 +179,20 @@ cargo run --example set_id -- [参数]
 | ----------------- | ------ | ------------ | -------------- | ------ | --------------------------------------------------------------------------------- |
 | `--port`          | `-p`   | String       | `/dev/ttyUSB0` | 否     | 串口路径                                                                          |
 | `--baud`          | `-b`   | u32          | `1000000`      | 否     | 波特率                                                                            |
+| `--origin-id`     | `-o`   | u8           | `0xFE`         | 否     | 原舵机 ID (1-253)，默认 0xFE 表示广播 ID，适用于未知 ID 的新舵机                 |
 | `--new-id`        | `-n`   | u8           | -              | **是** | 要设置的新 ID (1-253)，**0xFE (254) 为广播 ID 不可用**                            |
 | `--baudrate-code` | -      | Option\<u8\> | -              | 否     | 同时设置波特率：0=1M, 1=500K, 2=250K, 3=128K, 4=115200, 5=76800, 6=57600, 7=38400 |
 
 **示例：**
 ```bash
-cargo run --example set_id -- -p /dev/ttyUSB0 -n 5              # 设置为 ID 5
-cargo run --example set_id -- -p /dev/ttyUSB0 -n 1 --baudrate-code 4  # 设置 ID 1 并改为 115200 波特率
+# 使用广播 ID 设置（适用于未知 ID 的新舵机）
+cargo run --example set_id -- -p /dev/ttyUSB0 -n 5
+
+# 指定原 ID 修改为新 ID
+cargo run --example set_id -- -p /dev/ttyUSB0 -o 1 -n 5
+
+# 设置 ID 并同时修改波特率
+cargo run --example set_id -- -p /dev/ttyUSB0 -n 1 --baudrate-code 4
 ```
 
 **使用流程：**
@@ -258,7 +265,10 @@ cargo run --example read_raw -- -p /dev/ttyUSB0                 # 默认读取 1
 
 ### set_mid - 设置中位（零点标定）
 
-将当前物理位置设置为舵机中位（零点标定），用于校准舵机的机械零位。
+将当前物理位置设置为舵机中位（零点标定），用于校准舵机的机械零位。同时会：
+- 设置地址 9（最小角度限制）为 0
+- 设置地址 11（最大角度限制）为 0
+- 解锁/锁定 EEPROM 以保护设置
 
 **命令：**
 ```bash
@@ -365,7 +375,7 @@ cargo run --example raw_effort -- -p /dev/ttyUSB0 -e 200                   # 默
 
 ### to_zero - 走零位并自动复位
 
-将机械臂移动到零位，等待后自动回到安全停机位置，然后卸力退出。安全停机位置为 `[0.0, -107.7, 91.6, 64.0, -0.3, 0.0]`。
+将机械臂移动到零位，等待后自动回到安全停机位置，然后卸力退出。
 
 **命令：**
 ```bash
@@ -374,24 +384,33 @@ cargo run --example to_zero -- [参数]
 
 **参数：**
 
-| 参数         | 短参数 | 参数类型 | 默认值         | 必填 | 说明                             |
-| ------------ | ------ | -------- | -------------- | ---- | -------------------------------- |
-| `--port`     | `-p`   | String   | `/dev/ttyUSB0` | 否   | 串口路径                         |
-| `--baud`     | `-b`   | u32      | `1000000`      | 否   | 波特率                           |
-| `--wait`     | `-w`   | f32      | `5.0`          | 否   | 在零位等待时间（秒）             |
-| `--duration` | `-d`   | f32      | `3.0`          | 否   | 运动耗时（秒），时间越长速度越慢 |
+| 参数         | 短参数 | 参数类型      | 默认值                    | 必填 | 说明                                                                      |
+| ------------ | ------ | ------------- | ------------------------- | ---- | ------------------------------------------------------------------------- |
+| `--port`     | `-p`   | String        | `/dev/ttyUSB0`            | 否   | 串口路径                                                                  |
+| `--baud`     | `-b`   | u32           | `1000000`                 | 否   | 波特率                                                                    |
+| `--ids`      | `-i`   | Vec\<u8\>     | `1,2,3,4,5,6`          | 否   | 舵机 ID 列表，逗号分隔，**数量决定零位数组的长度**                          |
+| `--safe-stop` | -      | Vec\<f32\>    | `0.0,-107.7,91.6,64.0,-0.3,0.0` | 否   | 安全停机位置（逗号分隔的度数），**当 IDs 数量不为 6 时** 此参数必填            |
+| `--wait`     | `-w`   | f32           | `5.0`                    | 否   | 在零位等待时间（秒）                                                      |
+| `--duration` | `-d`   | f32           | `3.0`                    | 否   | 运动耗时（秒），时间越长速度越慢                                          |
 
 **示例：**
 ```bash
-cargo run --example to_zero -- -p /dev/ttyUSB0                    # 默认：零位等待 5 秒
-cargo run --example to_zero -- -p /dev/ttyUSB0 -w 10                # 零位等待 10 秒
-cargo run --example to_zero -- -p /dev/ttyUSB0 -d 5                  # 运动耗时 5 秒，更慢
+# 默认：6 舵机臂
+cargo run --example to_zero -- -p /dev/ttyUSB0
+
+# 5 舵机臂，需要指定安全停机位置
+cargo run --example to_zero -- -p /dev/ttyUSB0 --ids 1,2,3,4,5 --safe-stop=-2.0,-101.8,85.0,72.3,0.0
+
+# 自定义零位等待和运动时间
+cargo run --example to_zero -- -p /dev/ttyUSB0 -w 10 -d 5
 ```
 
+**注意**：负数参数请使用等号传递，如 `--safe-stop=-10.0,20.0`
+
 **流程：**
-1. 移动到零位 `[0°, 0°, 0°, 0°, 0°, 0°]`
+1. 移动到零位（根据 IDs 数量确定角度数组）
 2. 等待指定时间
-3. 移动到安全停机位置 `[0.0, -107.7, 91.6, 64.0, -0.3, 0.0]`
+3. 移动到安全停机位置
 4. 卸力并退出程序
 
 ---
@@ -505,10 +524,13 @@ cargo run --example scan -- -p /dev/ttyUSB0
 cargo run --example read_info -- -p /dev/ttyUSB0 -i 6
 
 # 3. 设置新舵机 ID（假设新舵机出厂 ID 相同，需要逐个设置）
-# 只连接一个舵机，断电其他舵机，然后设置
+# 方式一：使用广播 ID（适用于未知 ID 的新舵机）
 cargo run --example set_id -- -p /dev/ttyUSB0 -n 1   # 设置为 ID 1
 cargo run --example set_id -- -p /dev/ttyUSB0 -n 2   # 设置为 ID 2（断电重启第一个后）
 cargo run --example set_id -- -p /dev/ttyUSB0 -n 3   # 设置为 ID 3
+
+# 方式二：已知原 ID 时直接指定修改
+cargo run --example set_id -- -p /dev/ttyUSB0 -o 1 -n 5   # 把 ID 1 改为 ID 5
 
 # 4. 再次扫描确认
 cargo run --example scan -- -p /dev/ttyUSB0
@@ -516,7 +538,10 @@ cargo run --example scan -- -p /dev/ttyUSB0
 # 5. 简单移动测试
 cargo run --example simple_move -- -p /dev/ttyUSB0 -i 1 -d 90
 
-# 6. 监控位置
+# 6. 走零位并自动复位
+cargo run --example to_zero -- -p /dev/ttyUSB0
+
+# 7. 监控位置
 cargo run --example monitor -- -p /dev/ttyUSB0 --ids 1,2,3
 ```
 
